@@ -11,7 +11,7 @@ export default function App() {
       setLoading(true);
 
       const response = await axios.post(
-        "https://8080-cs-0f4b7376-3a29-4fdb-a779-252568c307fe.cs-us-central1-pits.cloudshell.dev/generate",
+        `${import.meta.env.VITE_API_BASE_URL}/generate`,
         {
           prompt,
         }
@@ -34,7 +34,7 @@ export default function App() {
         </h1>
 
         <p className="text-zinc-400 text-center mb-8">
-          Cinematic AI Music Video Generator
+          AI Cinematic Production Treatment Planner
         </p>
 
         <textarea
@@ -49,7 +49,7 @@ export default function App() {
           disabled={loading}
           className="w-full mt-6 bg-white text-black py-4 rounded-2xl font-bold hover:bg-zinc-300 transition"
         >
-          {loading ? "Generating..." : "Generate"}
+          {loading ? "Planning..." : "Generate treatment"}
         </button>
 
         {result && (
