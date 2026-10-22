@@ -11,7 +11,7 @@ export default function App() {
       setLoading(true);
 
       const response = await axios.post(
-        `${import.meta.env.VITE_API_BASE_URL}/generate`,
+        "/api/generate",
         {
           prompt,
         }
@@ -20,7 +20,7 @@ export default function App() {
       setResult(response.data.result);
     } catch (error) {
       console.error(error);
-      setResult("Something went wrong.");
+      setResult("AI planning is unavailable. The service may still need configuration.");
     } finally {
       setLoading(false);
     }
