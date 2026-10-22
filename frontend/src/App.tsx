@@ -20,7 +20,12 @@ export default function App() {
       setResult(response.data.result);
     } catch (error) {
       console.error(error);
-      setResult("AI planning is unavailable. The service may still need configuration.");
+      if (axios.isAxiosError(error)) {
+        const detail = error.response?.data?.error;
+        setResult(`Service error ${error.response?.status || "network"}: ${typeof detail === "string" ? detail : "Unable to reach AI endpoint."}`);
+      } else {
+        setResult("Unexpected error while generating a treatment.");
+      }
     } finally {
       setLoading(false);
     }
