@@ -1,0 +1,4 @@
+node_modules
+.env
+distcd ~/brandnmotion/backend
+cloudshell edit server.js
