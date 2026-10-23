@@ -20,11 +20,11 @@ export default async function handler(req, res) {
     }
     const listing = await modelsResponse.json();
     const available = (listing.models || []).filter(m => m.supportedGenerationMethods?.includes("generateContent"));
-    const preferred = ["gemini-2.5-flash-lite", "gemini-2.0-flash-lite", "gemini-2.0-flash", "gemini-2.5-flash"];
+    const preferred = ["gemini-2.0-flash-lite", "gemini-2.0-flash", "gemini-2.5-flash-lite", "gemini-2.5-flash"];
     const candidates = [...available].sort((a, b) => {
       const score = m => { const i = preferred.findIndex(p => m.name === "models/" + p); return i === -1 ? 100 : i; };
       return score(a) - score(b);
-    }).filter(m => /gemini.*flash/i.test(m.name)).slice(0, 6);
+    }).filter(m => /gemini.*flash/i.test(m.name) && !/(tts|audio|image|live|native|embedding|vision|robotics)/i.test(m.name)).slice(0, 8);
     if (!candidates.length) return res.status(502).json({ error: "No compatible Gemini text models are available." });
     let lastStatus = 404;
     for (const model of candidates) {
