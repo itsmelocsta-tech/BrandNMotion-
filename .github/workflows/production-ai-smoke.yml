@@ -1,0 +1,43 @@
+name: Production AI smoke test
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for matching production deployment
+        shell: bash
+        run: |
+          for i in {1..18}; do
+            deployed=$(curl -fsS https://api.github.com/repos/${{ github.repository }}/commits/main | python3 -c 'import json,sys; print(json.load(sys.stdin)["sha"])' || true)
+            [ "$deployed" = "${{ github.sha }}" ] && break
+            sleep 5
+          done
+          sleep 45
+      - name: Test actual production treatment generation
+        shell: bash
+        run: |
+          set -euo pipefail
+          response=$(mktemp)
+          status=$(curl -sS --max-time 100 -o "$response" -w '%{http_code}' \
+            -H 'Content-Type: application/json' \
+            -d '{"prompt":"Create a 10-second commercial for a fictional creative studio: glowing crystal, cinematic camera push, inspiring closing shot."}' \
+            https://brandnmotion-studio.vercel.app/api/generate)
+          echo "Production POST HTTP status: $status"
+          python3 - "$response" "$status" <<'PY'
+          import json,sys
+          path,status=sys.argv[1:]
+          try:
+              data=json.load(open(path))
+          except Exception:
+              print("Non-JSON response")
+              sys.exit(1)
+          result=data.get("result","")
+          if status=="200" and isinstance(result,str) and len(result.strip())>40:
+              print("PASS: Gemini returned a nonempty production treatment ("+str(len(result))+" characters)")
+          else:
+              print("FAIL: "+str(data.get("error","No valid production treatment returned"))[:250])
+              sys.exit(1)
+          PY
