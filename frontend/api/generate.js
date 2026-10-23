@@ -8,47 +8,40 @@ export default async function handler(req, res) {
   if (typeof prompt !== "string" || !prompt.trim() || prompt.length > 3000) {
     return res.status(400).json({ error: "Enter a scene description under 3000 characters." });
   }
-  if (!process.env.GEMINI_API_KEY) {
-    return res.status(503).json({ error: "AI planning is not configured yet." });
-  }
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) return res.status(503).json({ error: "Gemini API key is not configured." });
   try {
-    const response = await fetch(
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-goog-api-key": process.env.GEMINI_API_KEY,
-        },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: "Create a concise, practical cinematic production treatment with concept, shot list, camera moves, lighting, and editing notes for: " + prompt }] }],
-          generationConfig: { maxOutputTokens: 1200 },
-        }),
-      }
-    );
+    const headers = { "x-goog-api-key": key };
+    const modelsResponse = await fetch("https://generativelanguage.googleapis.com/v1beta/models?pageSize=100", { headers });
+    if (!modelsResponse.ok) {
+      console.error("Gemini model listing failed", modelsResponse.status);
+      const errors = { 400: "Gemini rejected the API request.", 401: "Gemini API key was rejected.", 403: "Gemini access denied. Check API key restrictions.", 429: "Gemini quota exceeded." };
+      return res.status(502).json({ error: (errors[modelsResponse.status] || "Unable to list available Gemini models.") + " (provider " + modelsResponse.status + ")" });
+    }
+    const listing = await modelsResponse.json();
+    const available = (listing.models || []).filter(m => m.supportedGenerationMethods?.includes("generateContent"));
+    const preferred = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.5-flash-lite"];
+    const model = preferred.map(id => available.find(m => m.name === "models/" + id)).find(Boolean) || available.find(m => /flash/i.test(m.name));
+    if (!model) return res.status(502).json({ error: "No supported Gemini text generation model is available for this key." });
+    const response = await fetch("https://generativelanguage.googleapis.com/v1beta/" + model.name + ":generateContent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...headers },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: "Create a concise cinematic production treatment including concept, shots, camera moves, lighting and editing notes for: " + prompt }] }],
+        generationConfig: { maxOutputTokens: 1200 }
+      })
+    });
     if (!response.ok) {
-      let providerCode = "UNKNOWN";
-      try {
-        const providerError = await response.json();
-        providerCode = String(providerError?.error?.status || "UNKNOWN").replace(/[^A-Z_]/g, "").slice(0, 40);
-      } catch {}
-      const messages = {
-        400: "Gemini rejected the request. Check the model and request format.",
-        401: "Gemini rejected API authentication. Check the key in Vercel.",
-        403: "Gemini access denied. Check API key restrictions and API access.",
-        404: "Gemini model unavailable. Check model availability.",
-        429: "Gemini quota or rate limit reached. Check your Google AI Studio quota.",
-      };
-      console.error("Gemini provider status:", response.status, providerCode);
-      return res.status(502).json({
-        error: (messages[response.status] || "Gemini service returned an error.") + " (provider " + response.status + ", " + providerCode + ")",
-      });
+      console.error("Gemini generation failed", response.status, model.name);
+      const messages = { 400: "Gemini rejected the prompt.", 401: "Gemini authentication failed.", 403: "Gemini access denied.", 404: "The selected Gemini model became unavailable.", 429: "Gemini quota or rate limit reached." };
+      return res.status(502).json({ error: (messages[response.status] || "Gemini generation failed.") + " (provider " + response.status + ")" });
     }
     const data = await response.json();
     const result = data.candidates?.[0]?.content?.parts?.map(p => p.text || "").join("") || "";
-    if (!result) return res.status(502).json({ error: "No treatment was returned." });
+    if (!result) return res.status(502).json({ error: "Gemini returned no text. Try a shorter prompt." });
     return res.status(200).json({ success: true, result });
-  } catch {
-    return res.status(502).json({ error: "AI planning request failed." });
+  } catch (error) {
+    console.error("Gemini request error", error?.name);
+    return res.status(502).json({ error: "Unable to connect to Gemini." });
   }
 }
