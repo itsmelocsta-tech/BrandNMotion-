@@ -26,7 +26,24 @@ export default async function handler(req, res) {
         }),
       }
     );
-    if (!response.ok) return res.status(502).json({ error: "AI planning provider unavailable." });
+    if (!response.ok) {
+      let providerCode = "UNKNOWN";
+      try {
+        const providerError = await response.json();
+        providerCode = String(providerError?.error?.status || "UNKNOWN").replace(/[^A-Z_]/g, "").slice(0, 40);
+      } catch {}
+      const messages = {
+        400: "Gemini rejected the request. Check the model and request format.",
+        401: "Gemini rejected API authentication. Check the key in Vercel.",
+        403: "Gemini access denied. Check API key restrictions and API access.",
+        404: "Gemini model unavailable. Check model availability.",
+        429: "Gemini quota or rate limit reached. Check your Google AI Studio quota.",
+      };
+      console.error("Gemini provider status:", response.status, providerCode);
+      return res.status(502).json({
+        error: (messages[response.status] || "Gemini service returned an error.") + " (provider " + response.status + ", " + providerCode + ")",
+      });
+    }
     const data = await response.json();
     const result = data.candidates?.[0]?.content?.parts?.map(p => p.text || "").join("") || "";
     if (!result) return res.status(502).json({ error: "No treatment was returned." });
