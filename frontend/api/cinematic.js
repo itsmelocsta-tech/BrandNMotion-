@@ -37,7 +37,7 @@ export default async function handler(req, res) {
     const videos = data.response?.generateVideoResponse?.generatedSamples || data.response?.generatedVideos || [];
     const uri = videos[0]?.video?.uri || videos[0]?.video?.videoUri || videos[0]?.video?.uri;
     if (!uri || !/^https:\/\//.test(uri)) return res.status(502).json({ error: "Generation completed without a downloadable video URL." });
-    return res.status(200).json({ status: "completed", videoUrl: uri + (uri.includes("?") ? "&" : "?") + "key=" + encodeURIComponent(key) });
+    return res.status(200).json({ status: "completed", downloadUrl: "/api/cinematic-download?operation=" + encodeURIComponent(operation) });
   } catch (error) {
     console.error("Veo service exception", error?.name);
     return res.status(502).json({ error: "Video service timed out or could not be reached." });
