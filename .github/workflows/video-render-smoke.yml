@@ -54,3 +54,38 @@ jobs:
             await browser.close();
           }
           JS
+
+      - name: Verify sequencing transitions soundtrack and final export
+        run: |
+          ffmpeg -hide_banner -loglevel error -y -f lavfi -i color=c=red:s=320x180:r=30 -t 2 -c:v libvpx -b:v 400k /tmp/scene1.webm
+          ffmpeg -hide_banner -loglevel error -y -f lavfi -i color=c=blue:s=320x180:r=30 -t 2 -c:v libvpx -b:v 400k /tmp/scene2.webm
+          ffmpeg -hide_banner -loglevel error -y -f lavfi -i sine=frequency=440:sample_rate=44100 -t 5 /tmp/music.wav
+          npm run dev -- --host 127.0.0.1 > /tmp/brandnmotion-editor.log 2>&1 &
+          sleep 4
+          node --input-type=module <<'JS'
+          import { chromium } from 'playwright';
+          const browser = await chromium.launch({headless:true,args:['--autoplay-policy=no-user-gesture-required']});
+          try {
+            const page = await browser.newPage();
+            const errors = [];
+            page.on('pageerror', e => errors.push(e.message));
+            await page.goto('http://127.0.0.1:5173/');
+            await page.getByLabel('Video clips').setInputFiles(['/tmp/scene1.webm','/tmp/scene2.webm']);
+            await page.getByLabel('Soundtrack').setInputFiles('/tmp/music.wav');
+            await page.getByRole('button',{name:'Stitch clips and export movie'}).click();
+            await page.getByRole('link',{name:'Download stitched movie'}).waitFor({timeout:45000});
+            const video = page.locator('section[aria-label="Video sequence editor"] video');
+            const data = await video.evaluate(async v => {
+              await new Promise((resolve,reject) => {
+                if (v.readyState >= 1) return resolve();
+                v.onloadedmetadata=resolve;
+                v.onerror=()=>reject(Error('Stitched export is unplayable'));
+                v.load();
+              });
+              const response=await fetch(v.src);
+              return {duration:v.duration,size:(await response.arrayBuffer()).byteLength, type:response.headers.get('content-type')};
+            });
+            console.log('Stitched movie:', data);
+            if (errors.length || data.size < 5000 || !(data.duration > 2) || !data.type?.includes('video/webm')) throw Error('Sequence export validation failed: '+JSON.stringify({errors,data}));
+          } finally { await browser.close(); }
+          JS
