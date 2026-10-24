@@ -1,10 +1,15 @@
 import { useState } from "react";
 import axios from "axios";
+import { renderVideo } from "./videoRenderer";
 
 export default function App() {
   const [prompt, setPrompt] = useState("");
   const [result, setResult] = useState("");
   const [loading, setLoading] = useState(false);
+  const [rendering, setRendering] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [videoUrl, setVideoUrl] = useState("");
+  const [renderError, setRenderError] = useState("");
 
   const generateVideo = async () => {
     try {
@@ -28,6 +33,20 @@ export default function App() {
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const makeVideo = async () => {
+    setRendering(true);
+    setRenderError("");
+    setProgress(0);
+    try {
+      const blob = await renderVideo({ prompt: prompt || result || "BrandNMotion cinematic preview", onProgress: setProgress });
+      setVideoUrl(old => { if (old) URL.revokeObjectURL(old); return URL.createObjectURL(blob); });
+    } catch (error) {
+      setRenderError(error instanceof Error ? error.message : "Rendering failed.");
+    } finally {
+      setRendering(false);
     }
   };
 
@@ -56,6 +75,13 @@ export default function App() {
         >
           {loading ? "Planning..." : "Generate treatment"}
         </button>
+
+        <button onClick={makeVideo} disabled={rendering} className="w-full mt-4 bg-cyan-500 text-black py-4 rounded-2xl font-bold disabled:opacity-50">
+          {rendering ? `Rendering video... ${progress}%` : "Render animated video (WebM)"}
+        </button>
+        <p className="text-zinc-400 text-sm mt-2">Creates a downloadable 12-second motion-graphics video locally in your browser. This is not AI-generated footage or a full cinematic scene render.</p>
+        {renderError && <p role="alert" className="text-red-300 mt-3">{renderError}</p>}
+        {videoUrl && <div className="mt-5"><video controls playsInline src={videoUrl} className="w-full rounded-xl" /><a href={videoUrl} download="BrandNMotion-preview.webm" className="block mt-3 text-cyan-300 underline">Download rendered WebM</a></div>}
 
         {result && (
           <div className="mt-8 bg-zinc-800 p-6 rounded-2xl border border-zinc-700 whitespace-pre-wrap">
