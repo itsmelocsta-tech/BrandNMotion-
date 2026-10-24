@@ -10,6 +10,9 @@ export default function App() {
   const [progress, setProgress] = useState(0);
   const [videoUrl, setVideoUrl] = useState("");
   const [renderError, setRenderError] = useState("");
+  const [cinematicStatus, setCinematicStatus] = useState("");
+  const [cinematicUrl, setCinematicUrl] = useState("");
+  const [cinematicBusy, setCinematicBusy] = useState(false);
 
   const generateVideo = async () => {
     try {
@@ -50,6 +53,30 @@ export default function App() {
     }
   };
 
+  const makeCinematic = async () => {
+    setCinematicBusy(true);
+    setCinematicUrl("");
+    setCinematicStatus("Submitting cinematic video request...");
+    try {
+      const started = await axios.post("/api/cinematic", { prompt, aspectRatio: "16:9" });
+      const operation = started.data.operation;
+      for (let i = 0; i < 90; i++) {
+        await new Promise(resolve => setTimeout(resolve, 8000));
+        const status = await axios.get("/api/cinematic", { params: { operation } });
+        if (status.data.status === "completed") {
+          setCinematicUrl(status.data.downloadUrl);
+          setCinematicStatus("AI cinematic footage ready to download.");
+          return;
+        }
+        setCinematicStatus("Generating cinematic footage... " + Math.round((i + 1) * 8 / 60) + " min elapsed");
+      }
+      setCinematicStatus("Still processing. Generation exceeded the wait window.");
+    } catch (error) {
+      const detail = axios.isAxiosError(error) ? error.response?.data?.error : undefined;
+      setCinematicStatus(typeof detail === "string" ? detail : "AI video generation failed.");
+    } finally { setCinematicBusy(false); }
+  };
+
   return (
     <div className="min-h-screen bg-black text-white flex items-center justify-center p-6">
       <div className="w-full max-w-3xl bg-zinc-900 rounded-3xl p-8 shadow-2xl border border-zinc-800">
@@ -82,6 +109,14 @@ export default function App() {
         <p className="text-zinc-400 text-sm mt-2">Creates a downloadable 12-second motion-graphics video locally in your browser. This is not AI-generated footage or a full cinematic scene render.</p>
         {renderError && <p role="alert" className="text-red-300 mt-3">{renderError}</p>}
         {videoUrl && <div className="mt-5"><video controls playsInline src={videoUrl} className="w-full rounded-xl" /><a href={videoUrl} download="BrandNMotion-preview.webm" className="block mt-3 text-cyan-300 underline">Download rendered WebM</a></div>}
+
+        <div className="mt-6 border border-zinc-700 rounded-2xl p-4">
+          <h2 className="text-xl font-semibold">AI cinematic footage (Veo)</h2>
+          <p className="text-sm text-zinc-400 mt-2">Generate a new AI-created cinematic video clip from your prompt. Provider billing approval and enabled Veo access are required; no charge is initiated until enabled.</p>
+          <button onClick={makeCinematic} disabled={cinematicBusy || !prompt.trim()} className="w-full mt-3 bg-purple-500 text-white py-4 rounded-xl font-bold disabled:opacity-50">{cinematicBusy ? "Generating AI footage..." : "Generate AI cinematic footage"}</button>
+          {cinematicStatus && <p role="status" className="mt-3 text-sm">{cinematicStatus}</p>}
+          {cinematicUrl && <a href={cinematicUrl} className="block mt-3 text-cyan-300 underline">Download AI-generated MP4</a>}
+        </div>
 
         {result && (
           <div className="mt-8 bg-zinc-800 p-6 rounded-2xl border border-zinc-700 whitespace-pre-wrap">
