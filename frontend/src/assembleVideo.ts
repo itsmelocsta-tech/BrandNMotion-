@@ -1,6 +1,5 @@
 export type Clip = { file: File; duration: number };
 export type EditOptions = { clips: Clip[]; audio?: File | null; transitionSeconds?: number; onProgress?: (percent: number) => void };
-const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 export async function assembleVideo({ clips, audio, transitionSeconds = 0.5, onProgress }: EditOptions): Promise<Blob> {
   if (!clips.length || clips.length > 12) throw Error("Add 1 to 12 clips.");
   if (!HTMLCanvasElement.prototype.captureStream || typeof MediaRecorder === "undefined") throw Error("This browser cannot export video.");
