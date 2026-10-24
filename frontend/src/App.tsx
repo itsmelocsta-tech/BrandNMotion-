@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
 import { renderVideo } from "./videoRenderer";
+import { assembleVideo } from "./assembleVideo";
 
 export default function App() {
   const [prompt, setPrompt] = useState("");
@@ -13,6 +14,12 @@ export default function App() {
   const [cinematicStatus, setCinematicStatus] = useState("");
   const [cinematicUrl, setCinematicUrl] = useState("");
   const [cinematicBusy, setCinematicBusy] = useState(false);
+  const [clips, setClips] = useState<File[]>([]);
+  const [soundtrack, setSoundtrack] = useState<File | null>(null);
+  const [assembledUrl, setAssembledUrl] = useState("");
+  const [assemblyStatus, setAssemblyStatus] = useState("");
+  const [assembling, setAssembling] = useState(false);
+  const [assemblyProgress, setAssemblyProgress] = useState(0);
   const [engines, setEngines] = useState<{ id: string; label: string; available: boolean; description: string }[]>([]);
   const [selectedEngine, setSelectedEngine] = useState("auto");
   const [aspectRatio, setAspectRatio] = useState("16:9");
@@ -84,6 +91,16 @@ export default function App() {
     } finally { setCinematicBusy(false); }
   };
 
+  const exportSequence = async () => {
+    setAssembling(true); setAssemblyStatus(""); setAssemblyProgress(0);
+    try {
+      const blob = await assembleVideo({ clips: clips.map(file => ({ file, duration: 120 })), audio: soundtrack, transitionSeconds: 0.5, onProgress: setAssemblyProgress });
+      setAssembledUrl(old => { if (old) URL.revokeObjectURL(old); return URL.createObjectURL(blob); });
+      setAssemblyStatus("Sequence exported successfully.");
+    } catch (error) { setAssemblyStatus(error instanceof Error ? error.message : "Video assembly failed."); }
+    finally { setAssembling(false); }
+  };
+
   return (
     <div className="min-h-screen bg-black text-white flex items-center justify-center p-6">
       <div className="w-full max-w-3xl bg-zinc-900 rounded-3xl p-8 shadow-2xl border border-zinc-800">
@@ -131,6 +148,19 @@ export default function App() {
           {cinematicStatus && <p role="status" className="mt-3 text-sm">{cinematicStatus}</p>}
           {cinematicUrl && <a href={cinematicUrl} className="block mt-3 text-cyan-300 underline">Download AI-generated MP4</a>}
         </div>
+
+        <section className="mt-6 border border-zinc-700 rounded-2xl p-4" aria-label="Video sequence editor">
+          <h2 className="text-xl font-semibold">Video sequence editor</h2>
+          <p className="text-sm text-zinc-400 mt-2">Combine up to 12 downloaded video clips in order, blend scenes with half-second crossfades, add a soundtrack, and export a WebM movie. Works with your own clips or generated footage.</p>
+          <label htmlFor="clips" className="block mt-4 text-sm">Video clips (selected order)</label>
+          <input id="clips" aria-label="Video clips" type="file" accept="video/*" multiple className="w-full mt-2" onChange={event => setClips(Array.from(event.target.files || []).slice(0,12))} />
+          {clips.length > 0 && <ol className="list-decimal ml-5 text-sm mt-2">{clips.map((file,i) => <li key={i}>{file.name}</li>)}</ol>}
+          <label htmlFor="soundtrack" className="block mt-4 text-sm">Soundtrack (optional)</label>
+          <input id="soundtrack" aria-label="Soundtrack" type="file" accept="audio/*" className="w-full mt-2" onChange={event => setSoundtrack(event.target.files?.[0] || null)} />
+          <button onClick={exportSequence} disabled={assembling || !clips.length} className="w-full mt-4 bg-emerald-500 text-black py-4 rounded-xl font-bold disabled:opacity-50">{assembling ? `Exporting sequence ${assemblyProgress}%` : "Stitch clips and export movie"}</button>
+          {assemblyStatus && <p role="status" className="text-sm mt-3">{assemblyStatus}</p>}
+          {assembledUrl && <div className="mt-4"><video controls playsInline src={assembledUrl} className="w-full rounded-xl" /><a href={assembledUrl} download="BrandNMotion-sequence.webm" className="block mt-2 underline text-cyan-300">Download stitched movie</a></div>}
+        </section>
 
         {result && (
           <div className="mt-8 bg-zinc-800 p-6 rounded-2xl border border-zinc-700 whitespace-pre-wrap">
