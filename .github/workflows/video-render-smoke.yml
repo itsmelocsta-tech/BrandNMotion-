@@ -1,0 +1,57 @@
+name: Video rendering smoke test
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - run: npx --yes playwright@1.58.2 install --with-deps chromium
+      - name: Verify actual browser recording and playable export
+        run: |
+          npm run dev -- --host 127.0.0.1 > /tmp/brandnmotion-vite.log 2>&1 &
+          sleep 5
+          node --input-type=module <<'JS'
+          import { chromium } from 'playwright';
+          const browser = await chromium.launch({ headless: true, args: ['--autoplay-policy=no-user-gesture-required'] });
+          try {
+            const page = await browser.newPage({ acceptDownloads: true });
+            const errors = [];
+            page.on('pageerror', e => errors.push(e.message));
+            await page.goto('http://127.0.0.1:5173/', { waitUntil: 'networkidle' });
+            await page.locator('textarea').fill('A cinematic glowing crystal flies through a futuristic neon city.');
+            await page.getByRole('button', { name: /Render animated video/ }).click();
+            await page.getByRole('link', { name: /Download rendered WebM/ }).waitFor({ timeout: 40000 });
+            const video = page.locator('video');
+            const result = await video.evaluate(async element => {
+              await new Promise((resolve, reject) => {
+                if (element.readyState >= 1) return resolve();
+                element.addEventListener('loadedmetadata', resolve, { once: true });
+                element.addEventListener('error', () => reject(new Error('Video metadata failed')), { once: true });
+                element.load();
+              });
+              const response = await fetch(element.src);
+              const bytes = await response.arrayBuffer();
+              return { duration: element.duration, bytes: bytes.byteLength, type: response.headers.get('content-type') };
+            });
+            console.log('Rendered video:', result);
+            if (errors.length) throw Error('Browser exceptions: ' + errors.join('; '));
+            if (result.bytes < 10000 || !result.type?.includes('video/webm') || !(result.duration > 0)) {
+              throw Error('Video export failed playable metadata or size verification');
+            }
+          } finally {
+            await browser.close();
+          }
+          JS
