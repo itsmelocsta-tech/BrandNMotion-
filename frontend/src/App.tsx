@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import axios from "axios";
 import { renderVideo } from "./videoRenderer";
 
@@ -13,6 +13,10 @@ export default function App() {
   const [cinematicStatus, setCinematicStatus] = useState("");
   const [cinematicUrl, setCinematicUrl] = useState("");
   const [cinematicBusy, setCinematicBusy] = useState(false);
+  const [engines, setEngines] = useState<{ id: string; label: string; available: boolean; description: string }[]>([]);
+  const [selectedEngine, setSelectedEngine] = useState("auto");
+  const [aspectRatio, setAspectRatio] = useState("16:9");
+  useEffect(() => { axios.get("/api/engines").then(response => setEngines(response.data.engines || [])).catch(() => setCinematicStatus("Unable to load video engines.")); }, []);
 
   const generateVideo = async () => {
     try {
@@ -58,13 +62,16 @@ export default function App() {
     setCinematicUrl("");
     setCinematicStatus("Submitting cinematic video request...");
     try {
-      const started = await axios.post("/api/cinematic", { prompt, aspectRatio: "16:9" });
-      const operation = started.data.operation;
+      const engine = selectedEngine === "auto" ? (engines.find(item => item.available)?.id || "") : selectedEngine;
+      if (!engine || !engines.some(item => item.id === engine && item.available)) { setCinematicStatus("No AI video provider is currently enabled. Connect a provider and approve generation costs before rendering."); return; }
+      const started = await axios.post("/api/engines", { engine, prompt, aspectRatio });
+      const id = started.data.id;
+      if (!id) throw new Error("Video provider did not return a job identifier.");
       for (let i = 0; i < 90; i++) {
         await new Promise(resolve => setTimeout(resolve, 8000));
-        const status = await axios.get("/api/cinematic", { params: { operation } });
+        const status = await axios.get("/api/engines", { params: { engine, id } });
         if (status.data.status === "completed") {
-          setCinematicUrl(status.data.downloadUrl);
+          setCinematicUrl(status.data.downloadUrl || status.data.videoUrl);
           setCinematicStatus("AI cinematic footage ready to download.");
           return;
         }
@@ -72,7 +79,7 @@ export default function App() {
       }
       setCinematicStatus("Still processing. Generation exceeded the wait window.");
     } catch (error) {
-      const detail = axios.isAxiosError(error) ? error.response?.data?.error : undefined;
+      const detail = axios.isAxiosError(error) ? error.response?.data?.error : error instanceof Error ? error.message : undefined;
       setCinematicStatus(typeof detail === "string" ? detail : "AI video generation failed.");
     } finally { setCinematicBusy(false); }
   };
@@ -111,8 +118,15 @@ export default function App() {
         {videoUrl && <div className="mt-5"><video controls playsInline src={videoUrl} className="w-full rounded-xl" /><a href={videoUrl} download="BrandNMotion-preview.webm" className="block mt-3 text-cyan-300 underline">Download rendered WebM</a></div>}
 
         <div className="mt-6 border border-zinc-700 rounded-2xl p-4">
-          <h2 className="text-xl font-semibold">AI cinematic footage (Veo)</h2>
-          <p className="text-sm text-zinc-400 mt-2">Generate a new AI-created cinematic video clip from your prompt. Provider billing approval and enabled Veo access are required; no charge is initiated until enabled.</p>
+          <h2 className="text-xl font-semibold">Multi-engine AI cinematic studio</h2>
+          <p className="text-sm text-zinc-400 mt-2">Choose a provider or automatic selection. AI footage requires provider credentials and billing approval. No paid generation is started unless enabled.</p>
+          <label className="block mt-3 text-sm" htmlFor="engine">Video engine</label>
+          <select id="engine" value={selectedEngine} onChange={event => setSelectedEngine(event.target.value)} className="w-full bg-zinc-800 p-3 rounded-lg mt-1">
+            <option value="auto">Auto: first available engine</option>
+            {engines.map(engine => <option key={engine.id} value={engine.id}>{engine.label} {engine.available ? "• Ready" : "• Not configured"}</option>)}
+          </select>
+          <label className="block mt-3 text-sm" htmlFor="aspect">Aspect ratio</label>
+          <select id="aspect" value={aspectRatio} onChange={event => setAspectRatio(event.target.value)} className="w-full bg-zinc-800 p-3 rounded-lg mt-1"><option value="16:9">Landscape 16:9</option><option value="9:16">Vertical 9:16</option></select>
           <button onClick={makeCinematic} disabled={cinematicBusy || !prompt.trim()} className="w-full mt-3 bg-purple-500 text-white py-4 rounded-xl font-bold disabled:opacity-50">{cinematicBusy ? "Generating AI footage..." : "Generate AI cinematic footage"}</button>
           {cinematicStatus && <p role="status" className="mt-3 text-sm">{cinematicStatus}</p>}
           {cinematicUrl && <a href={cinematicUrl} className="block mt-3 text-cyan-300 underline">Download AI-generated MP4</a>}
