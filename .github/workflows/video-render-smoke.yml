@@ -73,7 +73,7 @@ jobs:
             page.on('pageerror', e => errors.push(e.message));
             await page.goto('http://127.0.0.1:5173/');
             await page.getByLabel('Video clips').setInputFiles(['/tmp/scene1.webm','/tmp/scene2.webm']);
-            await page.getByLabel('Soundtrack').setInputFiles('/tmp/music.wav');
+            await page.locator('#soundtrack').setInputFiles('/tmp/music.wav');
             await page.getByRole('button',{name:'Stitch clips and export movie'}).click();
             await page.getByRole('link',{name:'Download stitched movie'}).waitFor({timeout:45000});
             const video = page.locator('section[aria-label="Video sequence editor"] video');
