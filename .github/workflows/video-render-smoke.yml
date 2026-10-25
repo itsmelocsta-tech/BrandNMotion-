@@ -55,6 +55,8 @@ jobs:
           }
           JS
 
+      - name: Install FFmpeg for fixture generation
+        run: sudo apt-get update -qq && sudo apt-get install -y ffmpeg
       - name: Verify sequencing transitions soundtrack and final export
         run: |
           ffmpeg -hide_banner -loglevel error -y -f lavfi -i color=c=red:s=320x180:r=30 -t 2 -c:v libvpx -b:v 400k /tmp/scene1.webm
