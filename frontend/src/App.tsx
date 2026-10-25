@@ -2,9 +2,14 @@ import { useEffect, useState } from "react";
 import axios from "axios";
 import { renderVideo } from "./videoRenderer";
 import { assembleVideo } from "./assembleVideo";
+import { planShots, type ShotPlan } from "./shotPlanner";
 
 export default function App() {
   const [prompt, setPrompt] = useState("");
+  const [shotPlan, setShotPlan] = useState<ShotPlan | null>(null);
+  const [activeShot, setActiveShot] = useState(0);
+  const [approvedCost, setApprovedCost] = useState(false);
+  const [estimatedRate, setEstimatedRate] = useState(0.12);
   const [result, setResult] = useState("");
   const [loading, setLoading] = useState(false);
   const [rendering, setRendering] = useState(false);
@@ -65,13 +70,15 @@ export default function App() {
   };
 
   const makeCinematic = async () => {
+    if (!approvedCost) { setCinematicStatus("Review the estimated generation cost and check approval before requesting paid footage."); return; }
     setCinematicBusy(true);
     setCinematicUrl("");
     setCinematicStatus("Submitting cinematic video request...");
     try {
       const engine = selectedEngine === "auto" ? (engines.find(item => item.available)?.id || "") : selectedEngine;
       if (!engine || !engines.some(item => item.id === engine && item.available)) { setCinematicStatus("No AI video provider is currently enabled. Connect a provider and approve generation costs before rendering."); return; }
-      const started = await axios.post("/api/engines", { engine, prompt, aspectRatio });
+      const scenePrompt = shotPlan?.shots[activeShot]?.prompt || prompt;
+      const started = await axios.post("/api/engines", { engine, prompt: scenePrompt.slice(0,1500), aspectRatio });
       const id = started.data.id;
       if (!id) throw new Error("Video provider did not return a job identifier.");
       for (let i = 0; i < 90; i++) {
@@ -119,6 +126,12 @@ export default function App() {
           className="w-full h-40 bg-zinc-800 text-white p-4 rounded-2xl outline-none border border-zinc-700"
         />
 
+        <section className="mt-5 border border-zinc-700 rounded-xl p-4" aria-label="Automatic shot planner">
+          <h2 className="text-xl font-semibold">Automatic shot planner</h2>
+          <p className="text-zinc-400 text-sm mt-2">Turn one idea into a sequence with consistent characters, settings and camera direction. Planning does not generate paid footage.</p>
+          <button className="w-full mt-3 bg-indigo-500 text-white py-3 rounded-lg font-bold disabled:opacity-50" disabled={!prompt.trim()} onClick={() => { try { setShotPlan(planShots(prompt)); setActiveShot(0); setApprovedCost(false); } catch (e) { setCinematicStatus(e instanceof Error ? e.message : "Planning failed"); } }}>Plan my shots (free)</button>
+          {shotPlan && <div className="mt-4"><p className="text-sm">Continuity: {shotPlan.continuity}</p><p className="text-sm mt-2">Planned runtime: {shotPlan.totalSeconds} seconds</p><label className="block mt-3" htmlFor="shot-select">Select shot to generate</label><select id="shot-select" className="w-full bg-zinc-800 p-2 rounded-lg mt-1" value={activeShot} onChange={e => { setActiveShot(Number(e.target.value)); setApprovedCost(false); }}>{shotPlan.shots.map((shot,i) => <option value={i} key={shot.id}>{shot.title}: {shot.camera}</option>)}</select><p className="text-sm mt-3 whitespace-pre-wrap">{shotPlan.shots[activeShot].prompt}</p></div>}
+        </section>
         <button
           onClick={generateVideo}
           disabled={loading}
@@ -144,7 +157,11 @@ export default function App() {
           </select>
           <label className="block mt-3 text-sm" htmlFor="aspect">Aspect ratio</label>
           <select id="aspect" value={aspectRatio} onChange={event => setAspectRatio(event.target.value)} className="w-full bg-zinc-800 p-3 rounded-lg mt-1"><option value="16:9">Landscape 16:9</option><option value="9:16">Vertical 9:16</option></select>
-          <button onClick={makeCinematic} disabled={cinematicBusy || !prompt.trim()} className="w-full mt-3 bg-purple-500 text-white py-4 rounded-xl font-bold disabled:opacity-50">{cinematicBusy ? "Generating AI footage..." : "Generate AI cinematic footage"}</button>
+          <label htmlFor="cost-rate" className="block mt-3 text-sm">Estimated provider rate (USD per second; verify with provider)</label>
+          <select id="cost-rate" value={estimatedRate} onChange={e => { setEstimatedRate(Number(e.target.value)); setApprovedCost(false); }} className="w-full bg-zinc-800 p-3 rounded-lg mt-1"><option value={0.05}>Budget estimate: $0.05/sec</option><option value={0.12}>Premium estimate: $0.12/sec</option><option value={0.4}>High-end estimate: $0.40/sec</option></select>
+          <p className="mt-3 text-sm">Estimated cost for one 5-second generation: <strong>${(5 * estimatedRate).toFixed(2)}</strong>. Estimated cost for all {shotPlan?.shots.length || 1} shots: <strong>${(5 * estimatedRate * (shotPlan?.shots.length || 1)).toFixed(2)}</strong>. Estimates only, not provider quotes; retries cost extra. Each click requests one shot.</p>
+          <label className="flex items-start gap-2 mt-3 text-sm"><input type="checkbox" checked={approvedCost} onChange={e => setApprovedCost(e.target.checked)} /> I understand generation may incur provider charges and approve requesting this shot.</label>
+          <button onClick={makeCinematic} disabled={cinematicBusy || !prompt.trim() || !approvedCost} className="w-full mt-3 bg-purple-500 text-white py-4 rounded-xl font-bold disabled:opacity-50">{cinematicBusy ? "Generating AI footage..." : "Generate AI cinematic footage"}</button>
           {cinematicStatus && <p role="status" className="mt-3 text-sm">{cinematicStatus}</p>}
           {cinematicUrl && <a href={cinematicUrl} className="block mt-3 text-cyan-300 underline">Download AI-generated MP4</a>}
         </div>
