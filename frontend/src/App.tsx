@@ -25,6 +25,8 @@ export default function App() {
   const [assemblyStatus, setAssemblyStatus] = useState("");
   const [assembling, setAssembling] = useState(false);
   const [assemblyProgress, setAssemblyProgress] = useState(0);
+  const [crossfade, setCrossfade] = useState(0.5);
+  const [soundtrackVolume, setSoundtrackVolume] = useState(1);
   const [engines, setEngines] = useState<{ id: string; label: string; available: boolean; description: string }[]>([]);
   const [selectedEngine, setSelectedEngine] = useState("auto");
   const [aspectRatio, setAspectRatio] = useState("16:9");
@@ -101,7 +103,7 @@ export default function App() {
   const exportSequence = async () => {
     setAssembling(true); setAssemblyStatus(""); setAssemblyProgress(0);
     try {
-      const blob = await assembleVideo({ clips: clips.map(file => ({ file, duration: 120 })), audio: soundtrack, transitionSeconds: 0.5, onProgress: setAssemblyProgress });
+      const blob = await assembleVideo({ clips: clips.map(file => ({ file, duration: 120 })), audio: soundtrack, transitionSeconds: crossfade, soundtrackVolume, onProgress: setAssemblyProgress });
       setAssembledUrl(old => { if (old) URL.revokeObjectURL(old); return URL.createObjectURL(blob); });
       setAssemblyStatus("Sequence exported successfully.");
     } catch (error) { setAssemblyStatus(error instanceof Error ? error.message : "Video assembly failed."); }
@@ -174,6 +176,10 @@ export default function App() {
           {clips.length > 0 && <ol className="list-decimal ml-5 text-sm mt-2">{clips.map((file,i) => <li key={i}>{file.name}</li>)}</ol>}
           <label htmlFor="soundtrack" className="block mt-4 text-sm">Soundtrack (optional)</label>
           <input id="soundtrack" aria-label="Soundtrack" type="file" accept="audio/*" className="w-full mt-2" onChange={event => setSoundtrack(event.target.files?.[0] || null)} />
+          <label htmlFor="crossfade" className="block mt-3 text-sm">Crossfade: {crossfade.toFixed(1)} seconds</label>
+          <input id="crossfade" type="range" min="0" max="1" step="0.1" value={crossfade} onChange={e => setCrossfade(Number(e.target.value))} className="w-full" />
+          <label htmlFor="soundtrack-volume" className="block mt-3 text-sm">Soundtrack volume: {Math.round(soundtrackVolume * 100)}%</label>
+          <input id="soundtrack-volume" type="range" min="0" max="2" step="0.1" value={soundtrackVolume} onChange={e => setSoundtrackVolume(Number(e.target.value))} className="w-full" />
           <button onClick={exportSequence} disabled={assembling || !clips.length} className="w-full mt-4 bg-emerald-500 text-black py-4 rounded-xl font-bold disabled:opacity-50">{assembling ? `Exporting sequence ${assemblyProgress}%` : "Stitch clips and export movie"}</button>
           {assemblyStatus && <p role="status" className="text-sm mt-3">{assemblyStatus}</p>}
           {assembledUrl && <div className="mt-4"><video controls playsInline src={assembledUrl} className="w-full rounded-xl" /><a href={assembledUrl} download="BrandNMotion-sequence.webm" className="block mt-2 underline text-cyan-300">Download stitched movie</a></div>}
