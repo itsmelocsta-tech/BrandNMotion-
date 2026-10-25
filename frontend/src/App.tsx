@@ -3,11 +3,14 @@ import axios from "axios";
 import { renderVideo } from "./videoRenderer";
 import { assembleVideo } from "./assembleVideo";
 import { planShots, type ShotPlan } from "./shotPlanner";
+import { produceShots, type Production } from "./productionController";
 
 export default function App() {
   const [prompt, setPrompt] = useState("");
   const [shotPlan, setShotPlan] = useState<ShotPlan | null>(null);
   const [activeShot, setActiveShot] = useState(0);
+  const [production, setProduction] = useState<Production | null>(null);
+  const [producing, setProducing] = useState(false);
   const [approvedCost, setApprovedCost] = useState(false);
   const [estimatedRate, setEstimatedRate] = useState(0.12);
   const [result, setResult] = useState("");
@@ -100,6 +103,16 @@ export default function App() {
     } finally { setCinematicBusy(false); }
   };
 
+  const runProduction = async () => {
+    if (!shotPlan || !approvedCost || producing) return;
+    const engine = selectedEngine === "auto" ? engines.find(item => item.available)?.id : selectedEngine;
+    if (!engine || !engines.some(item => item.id === engine && item.available)) { setCinematicStatus("No enabled video provider. Production cannot start."); return; }
+    setProducing(true); setApprovedCost(false);
+    try { const result = await produceShots(shotPlan, engine, setProduction); setCinematicStatus(result.finished ? "All shots generated. Download the clips and assemble them below." : "Production stopped at a failed shot. No remaining shots were requested."); }
+    catch (error) { setCinematicStatus(error instanceof Error ? error.message : "Production failed."); }
+    finally { setProducing(false); }
+  };
+
   const exportSequence = async () => {
     setAssembling(true); setAssemblyStatus(""); setAssemblyProgress(0);
     try {
@@ -162,7 +175,9 @@ export default function App() {
           <label htmlFor="cost-rate" className="block mt-3 text-sm">Estimated provider rate (USD per second; verify with provider)</label>
           <select id="cost-rate" value={estimatedRate} onChange={e => { setEstimatedRate(Number(e.target.value)); setApprovedCost(false); }} className="w-full bg-zinc-800 p-3 rounded-lg mt-1"><option value={0.05}>Budget estimate: $0.05/sec</option><option value={0.12}>Premium estimate: $0.12/sec</option><option value={0.4}>High-end estimate: $0.40/sec</option></select>
           <p className="mt-3 text-sm">Estimated cost for one 5-second generation: <strong>${(5 * estimatedRate).toFixed(2)}</strong>. Estimated cost for all {shotPlan?.shots.length || 1} shots: <strong>${(5 * estimatedRate * (shotPlan?.shots.length || 1)).toFixed(2)}</strong>. Estimates only, not provider quotes; retries cost extra. Each click requests one shot.</p>
-          <label className="flex items-start gap-2 mt-3 text-sm"><input type="checkbox" checked={approvedCost} onChange={e => setApprovedCost(e.target.checked)} /> I understand generation may incur provider charges and approve requesting this shot.</label>
+          <label className="flex items-start gap-2 mt-3 text-sm"><input type="checkbox" checked={approvedCost} onChange={e => setApprovedCost(e.target.checked)} /> I approve provider charges for the selected shot, or all planned shots if I select Generate all. The estimate is not a guaranteed maximum.</label>
+          {shotPlan && <button className="w-full mt-3 bg-amber-500 text-black py-3 rounded-lg font-bold disabled:opacity-50" disabled={!approvedCost || producing || !engines.some(e => e.available)} onClick={runProduction}>{producing ? "Producing shots..." : "Generate all planned shots (paid)"}</button>}
+          {production && <ol className="mt-3 text-sm list-decimal ml-5">{production.shots.map(shot => <li key={shot.id}>Shot {shot.id}: {shot.status} {shot.videoUrl && <a className="underline text-cyan-300" href={shot.videoUrl}>Download clip</a>} {shot.error && <span role="alert">{shot.error}</span>}</li>)}</ol>}
           <button onClick={makeCinematic} disabled={cinematicBusy || !prompt.trim() || !approvedCost} className="w-full mt-3 bg-purple-500 text-white py-4 rounded-xl font-bold disabled:opacity-50">{cinematicBusy ? "Generating AI footage..." : "Generate AI cinematic footage"}</button>
           {cinematicStatus && <p role="status" className="mt-3 text-sm">{cinematicStatus}</p>}
           {cinematicUrl && <a href={cinematicUrl} className="block mt-3 text-cyan-300 underline">Download AI-generated MP4</a>}
