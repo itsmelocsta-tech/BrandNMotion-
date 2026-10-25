@@ -1,6 +1,6 @@
 export type Clip = { file: File; duration: number };
-export type EditOptions = { clips: Clip[]; audio?: File | null; transitionSeconds?: number; onProgress?: (percent: number) => void };
-export async function assembleVideo({ clips, audio, transitionSeconds = 0.5, onProgress }: EditOptions): Promise<Blob> {
+export type EditOptions = { clips: Clip[]; audio?: File | null; transitionSeconds?: number; soundtrackVolume?: number; onProgress?: (percent: number) => void };
+export async function assembleVideo({ clips, audio, transitionSeconds = 0.5, soundtrackVolume = 1, onProgress }: EditOptions): Promise<Blob> {
   if (!clips.length || clips.length > 12) throw Error("Add 1 to 12 clips.");
   if (!HTMLCanvasElement.prototype.captureStream || typeof MediaRecorder === "undefined") throw Error("This browser cannot export video.");
   const mimeType = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"].find(type => MediaRecorder.isTypeSupported(type));
@@ -41,7 +41,10 @@ export async function assembleVideo({ clips, audio, transitionSeconds = 0.5, onP
       const audioUrl = URL.createObjectURL(audio); urls.push(audioUrl); audioElement.src = audioUrl;
       audioElement.preload = "auto";
       const source = audioContext.createMediaElementSource(audioElement);
-      source.connect(destination);
+      const gain = audioContext.createGain();
+      gain.gain.value = Math.max(0, Math.min(2, soundtrackVolume));
+      source.connect(gain);
+      gain.connect(destination);
       stream.addTrack(destination.stream.getAudioTracks()[0]);
       await audioContext.resume();
     }
