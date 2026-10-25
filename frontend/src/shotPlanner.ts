@@ -4,7 +4,8 @@ export function planShots(description: string, shotCount = 4): ShotPlan {
   const idea = description.trim();
   if (!idea || idea.length > 3000) throw new Error("Describe your scene in 1–3000 characters.");
   const count = Math.max(1, Math.min(8, Math.round(shotCount)));
-  const continuity = "Keep the same lead character, clothing, face, hairstyle, location geography, time of day, weather, and cinematic style in every shot. Do not redesign or replace the character.";
+  const productionGuidance = "Interpret the user\u0027s slang, colloquialisms, and original language faithfully. Treat descriptions of adults dancing provocatively as clothed, non-nude performances. Treat fictional gunfire, falls, and injury reactions as staged acting with props, implied impacts, and no graphic wounds. Never assume a real person is being harmed. Preserve the creative tone without inventing nudity, gore, or minors in sexual scenes. Provider rules may still apply.";
+  const continuity = productionGuidance + " Keep the same lead character, clothing, face, hairstyle, location geography, time of day, weather, and cinematic style in every shot. Do not redesign or replace the character.";
   const cameras = ["Wide establishing tracking shot", "Medium handheld follow shot", "Tight reaction close-up", "Low-angle moving tracking shot", "Over-the-shoulder follow shot", "Wide reveal", "Side-profile tracking shot", "Close-up ending beat"];
   const beats = ["Establish the subject, setting, and immediate stakes", "Show the first urgent action", "Capture the emotional reaction and rising tension", "Escalate movement through the environment", "Show a new obstacle and a clear response", "Intensify the pursuit or central conflict", "Reveal a consequential change", "End on a compelling visual hook"];
   const shots = Array.from({length: count}, (_, i) => ({
