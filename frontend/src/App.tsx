@@ -31,7 +31,7 @@ export default function App() {
   const [crossfade, setCrossfade] = useState(0.5);
   const [soundtrackVolume, setSoundtrackVolume] = useState(1);
   const [engines, setEngines] = useState<{ id: string; label: string; available: boolean; description: string }[]>([]);
-  const [selectedEngine, setSelectedEngine] = useState("auto");
+  const [selectedEngine, setSelectedEngine] = useState("kling");
   const [aspectRatio, setAspectRatio] = useState("16:9");
   useEffect(() => { axios.get("/api/engines").then(response => setEngines(response.data.engines || [])).catch(() => setCinematicStatus("Unable to load video engines.")); }, []);
 
@@ -76,6 +76,8 @@ export default function App() {
 
   const makeCinematic = async () => {
     if (!approvedCost) { setCinematicStatus("Review the estimated generation cost and check approval before requesting paid footage."); return; }
+    if (producing || cinematicBusy) return;
+    setApprovedCost(false);
     setCinematicBusy(true);
     setCinematicUrl("");
     setCinematicStatus("Submitting cinematic video request...");
@@ -89,6 +91,7 @@ export default function App() {
       for (let i = 0; i < 90; i++) {
         await new Promise(resolve => setTimeout(resolve, 8000));
         const status = await axios.get("/api/engines", { params: { engine, id } });
+        if (["failed", "cancelled"].includes(status.data.status)) throw new Error(status.data.error || "Generation failed.");
         if (status.data.status === "completed") {
           setCinematicUrl(status.data.downloadUrl || status.data.videoUrl);
           setCinematicStatus("AI cinematic footage ready to download.");
@@ -108,7 +111,7 @@ export default function App() {
     const engine = selectedEngine === "auto" ? engines.find(item => item.available)?.id : selectedEngine;
     if (!engine || !engines.some(item => item.id === engine && item.available)) { setCinematicStatus("No enabled video provider. Production cannot start."); return; }
     setProducing(true); setApprovedCost(false);
-    try { const result = await produceShots(shotPlan, engine, setProduction); setCinematicStatus(result.finished ? "All shots generated. Download the clips and assemble them below." : "Production stopped at a failed shot. No remaining shots were requested."); }
+    try { const result = await produceShots(shotPlan, engine, setProduction, fetch, undefined, aspectRatio); setCinematicStatus(result.finished ? "All shots generated. Download the clips and assemble them below." : "Production stopped at a failed shot. No remaining shots were requested."); }
     catch (error) { setCinematicStatus(error instanceof Error ? error.message : "Production failed."); }
     finally { setProducing(false); }
   };
@@ -125,34 +128,34 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-black text-white flex items-center justify-center p-6">
-      <div className="w-full max-w-3xl bg-zinc-900 rounded-3xl p-8 shadow-2xl border border-zinc-800">
+      <div className="w-full max-w-5xl bg-zinc-900 rounded-3xl p-8 shadow-2xl border border-zinc-800">
         <h1 className="text-5xl font-bold mb-6 text-center">
-          BrandNmotion
+          BrandNMotion
         </h1>
 
         <p className="text-zinc-400 text-center mb-8">
-          AI Cinematic Production Treatment Planner
+          Director Pro · Your idea. A directed production.
         </p>
 
-        <textarea
+        <nav aria-label="Production workflow" className="flex flex-wrap gap-3 mb-6 text-sm text-cyan-300"><a href="#brief">01 Brief</a><a href="#direction">02 Direction</a><a href="#footage">03 Generate</a><a href="#edit">04 Assemble</a></nav><h2 id="brief" className="text-xl font-semibold mb-3">Tell your story</h2><textarea
           value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
+          aria-label="Production brief" maxLength={3000} disabled={producing || cinematicBusy} onChange={(e) => { setPrompt(e.target.value); setShotPlan(null); setApprovedCost(false); }}
           placeholder="Describe your cinematic music video..."
           className="w-full h-40 bg-zinc-800 text-white p-4 rounded-2xl outline-none border border-zinc-700"
         />
 
-        <section className="mt-5 border border-zinc-700 rounded-xl p-4" aria-label="Automatic shot planner">
-          <h2 className="text-xl font-semibold">Automatic shot planner</h2>
+        <section id="direction" className="mt-5 border border-zinc-700 rounded-xl p-4" aria-label="Director Pro shot board">
+          <h2 className="text-xl font-semibold">Director Pro shot board</h2>
           <p className="text-zinc-400 text-sm mt-2">Turn one idea into a sequence with consistent characters, settings and camera direction. Planning does not generate paid footage.</p>
-          <button className="w-full mt-3 bg-indigo-500 text-white py-3 rounded-lg font-bold disabled:opacity-50" disabled={!prompt.trim()} onClick={() => { try { setShotPlan(planShots(prompt)); setActiveShot(0); setApprovedCost(false); } catch (e) { setCinematicStatus(e instanceof Error ? e.message : "Planning failed"); } }}>Plan my shots (free)</button>
-          {shotPlan && <div className="mt-4"><p className="text-sm">Continuity: {shotPlan.continuity}</p><p className="text-sm mt-2">Planned runtime: {shotPlan.totalSeconds} seconds</p><label className="block mt-3" htmlFor="shot-select">Select shot to generate</label><select id="shot-select" className="w-full bg-zinc-800 p-2 rounded-lg mt-1" value={activeShot} onChange={e => { setActiveShot(Number(e.target.value)); setApprovedCost(false); }}>{shotPlan.shots.map((shot,i) => <option value={i} key={shot.id}>{shot.title}: {shot.camera}</option>)}</select><p className="text-sm mt-3 whitespace-pre-wrap">{shotPlan.shots[activeShot].prompt}</p></div>}
+          <button className="w-full mt-3 bg-indigo-500 text-white py-3 rounded-lg font-bold disabled:opacity-50" disabled={!prompt.trim() || producing || cinematicBusy} onClick={() => { try { setShotPlan(planShots(prompt)); setActiveShot(0); setApprovedCost(false); } catch (e) { setCinematicStatus(e instanceof Error ? e.message : "Planning failed"); } }}>Direct This For Me · Free planning</button>
+          {shotPlan && <div className="mt-4"><p className="text-sm">Continuity: {shotPlan.continuity}</p><p className="text-sm mt-2">Planned runtime: {shotPlan.totalSeconds} seconds</p><label className="block mt-3" htmlFor="shot-select">Select shot to generate</label><select id="shot-select" className="w-full bg-zinc-800 p-2 rounded-lg mt-1" value={activeShot} onChange={e => { setActiveShot(Number(e.target.value)); setApprovedCost(false); }}>{shotPlan.shots.map((shot,i) => <option value={i} key={shot.id}>{shot.title}: {shot.camera}</option>)}</select><label className="block mt-3" htmlFor="shot-prompt">Shot direction</label><textarea id="shot-prompt" maxLength={1500} disabled={producing || cinematicBusy} className="w-full h-48 bg-zinc-800 p-3 rounded-lg mt-2" value={shotPlan.shots[activeShot].prompt} onChange={e => { setShotPlan({ ...shotPlan, shots: shotPlan.shots.map((shot, i) => i === activeShot ? {...shot, prompt: e.target.value} : shot) }); setApprovedCost(false); }} /></div>}
         </section>
         <button
           onClick={generateVideo}
           disabled={loading}
           className="w-full mt-6 bg-white text-black py-4 rounded-2xl font-bold hover:bg-zinc-300 transition"
         >
-          {loading ? "Planning..." : "Generate treatment"}
+          {loading ? "Planning..." : "Write creative treatment"}
         </button>
 
         <button onClick={makeVideo} disabled={rendering} className="w-full mt-4 bg-cyan-500 text-black py-4 rounded-2xl font-bold disabled:opacity-50">
@@ -162,28 +165,28 @@ export default function App() {
         {renderError && <p role="alert" className="text-red-300 mt-3">{renderError}</p>}
         {videoUrl && <div className="mt-5"><video controls playsInline src={videoUrl} className="w-full rounded-xl" /><a href={videoUrl} download="BrandNMotion-preview.webm" className="block mt-3 text-cyan-300 underline">Download rendered WebM</a></div>}
 
-        <div className="mt-6 border border-zinc-700 rounded-2xl p-4">
-          <h2 className="text-xl font-semibold">Multi-engine AI cinematic studio</h2>
-          <p className="text-sm text-zinc-400 mt-2">Choose a provider or automatic selection. AI footage requires provider credentials and billing approval. No paid generation is started unless enabled.</p>
+        <div id="footage" className="mt-6 border border-zinc-700 rounded-2xl p-4">
+          <h2 className="text-xl font-semibold">Generate your footage</h2>
+          <p className="text-sm text-zinc-400 mt-2">Kling is your default generator. Choose another provider when needed. AI footage requires provider credentials and billing approval. No paid generation is started unless enabled.</p>
           <label className="block mt-3 text-sm" htmlFor="engine">Video engine</label>
-          <select id="engine" value={selectedEngine} onChange={event => setSelectedEngine(event.target.value)} className="w-full bg-zinc-800 p-3 rounded-lg mt-1">
-            <option value="auto">Auto: first available engine</option>
-            {engines.map(engine => <option key={engine.id} value={engine.id}>{engine.label} {engine.available ? "• Ready" : "• Not configured"}</option>)}
+          <select id="engine" value={selectedEngine} onChange={event => { setSelectedEngine(event.target.value); setApprovedCost(false); }} className="w-full bg-zinc-800 p-3 rounded-lg mt-1">
+            {!engines.some(e => e.id === "kling") && <option value="kling">Kling · Checking connection</option>}
+            {engines.map(engine => <option key={engine.id} value={engine.id}>{engine.label} {engine.available ? "â€¢ Ready" : "â€¢ Not configured"}</option>)}
           </select>
           <label className="block mt-3 text-sm" htmlFor="aspect">Aspect ratio</label>
-          <select id="aspect" value={aspectRatio} onChange={event => setAspectRatio(event.target.value)} className="w-full bg-zinc-800 p-3 rounded-lg mt-1"><option value="16:9">Landscape 16:9</option><option value="9:16">Vertical 9:16</option></select>
+          <select id="aspect" value={aspectRatio} onChange={event => { setAspectRatio(event.target.value); setApprovedCost(false); }} className="w-full bg-zinc-800 p-3 rounded-lg mt-1"><option value="16:9">Landscape 16:9</option><option value="9:16">Vertical 9:16</option></select>
           <label htmlFor="cost-rate" className="block mt-3 text-sm">Estimated provider rate (USD per second; verify with provider)</label>
           <select id="cost-rate" value={estimatedRate} onChange={e => { setEstimatedRate(Number(e.target.value)); setApprovedCost(false); }} className="w-full bg-zinc-800 p-3 rounded-lg mt-1"><option value={0.05}>Budget estimate: $0.05/sec</option><option value={0.12}>Premium estimate: $0.12/sec</option><option value={0.4}>High-end estimate: $0.40/sec</option></select>
-          <p className="mt-3 text-sm">Estimated cost for one 5-second generation: <strong>${(5 * estimatedRate).toFixed(2)}</strong>. Estimated cost for all {shotPlan?.shots.length || 1} shots: <strong>${(5 * estimatedRate * (shotPlan?.shots.length || 1)).toFixed(2)}</strong>. Estimates only, not provider quotes; retries cost extra. Each click requests one shot.</p>
+          <p className="mt-3 text-sm">Estimated cost for one 5-second generation: <strong>${(5 * estimatedRate).toFixed(2)}</strong>. Estimated cost for all {shotPlan?.shots.length || 1} shots: <strong>${(5 * estimatedRate * (shotPlan?.shots.length || 1)).toFixed(2)}</strong>. Estimates only, not provider quotes; retries cost extra. Single-shot generation requests one clip; Generate all requests the complete shot board.</p>
           <label className="flex items-start gap-2 mt-3 text-sm"><input type="checkbox" checked={approvedCost} onChange={e => setApprovedCost(e.target.checked)} /> I approve provider charges for the selected shot, or all planned shots if I select Generate all. The estimate is not a guaranteed maximum.</label>
-          {shotPlan && <button className="w-full mt-3 bg-amber-500 text-black py-3 rounded-lg font-bold disabled:opacity-50" disabled={!approvedCost || producing || !engines.some(e => e.available)} onClick={runProduction}>{producing ? "Producing shots..." : "Generate all planned shots (paid)"}</button>}
+          {shotPlan && <button className="w-full mt-3 bg-amber-500 text-black py-3 rounded-lg font-bold disabled:opacity-50" disabled={!approvedCost || producing || cinematicBusy || !engines.some(e => e.id === selectedEngine && e.available)} onClick={runProduction}>{producing ? "Producing shots..." : "Generate all planned shots (paid)"}</button>}
           {production && <ol className="mt-3 text-sm list-decimal ml-5">{production.shots.map(shot => <li key={shot.id}>Shot {shot.id}: {shot.status} {shot.videoUrl && <a className="underline text-cyan-300" href={shot.videoUrl}>Download clip</a>} {shot.error && <span role="alert">{shot.error}</span>}</li>)}</ol>}
-          <button onClick={makeCinematic} disabled={cinematicBusy || !prompt.trim() || !approvedCost} className="w-full mt-3 bg-purple-500 text-white py-4 rounded-xl font-bold disabled:opacity-50">{cinematicBusy ? "Generating AI footage..." : "Generate AI cinematic footage"}</button>
+          <button onClick={makeCinematic} disabled={producing || cinematicBusy || !prompt.trim() || !approvedCost || !engines.some(e => e.id === selectedEngine && e.available)} className="w-full mt-3 bg-purple-500 text-white py-4 rounded-xl font-bold disabled:opacity-50">{cinematicBusy ? "Generating AI footage..." : "Generate AI cinematic footage"}</button>
           {cinematicStatus && <p role="status" className="mt-3 text-sm">{cinematicStatus}</p>}
           {cinematicUrl && <a href={cinematicUrl} className="block mt-3 text-cyan-300 underline">Download AI-generated MP4</a>}
         </div>
 
-        <section className="mt-6 border border-zinc-700 rounded-2xl p-4" aria-label="Video sequence editor">
+        <section id="edit" className="mt-6 border border-zinc-700 rounded-2xl p-4" aria-label="Video sequence editor">
           <h2 className="text-xl font-semibold">Video sequence editor</h2>
           <p className="text-sm text-zinc-400 mt-2">Combine up to 12 downloaded video clips in order, blend scenes with half-second crossfades, add a soundtrack, and export a WebM movie. Works with your own clips or generated footage.</p>
           <label htmlFor="clips" className="block mt-4 text-sm">Video clips (selected order)</label>
