@@ -1,10 +1,10 @@
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
-  if (req.method === 'GET') return res.status(200).json({configured: Boolean(process.env.GOOGLE_MAPS_API_KEY)});
+  if (req.method === 'GET') return res.status(200).json({configured: Boolean((process.env.GOOGLE_MAPS_API_KEY || process.env.Google_Maps_API_Key))});
   if (req.method !== 'POST') return res.status(405).json({error: 'Method not allowed.'});
   const address = req.body?.address;
   if (typeof address !== 'string' || !address.trim() || address.length > 300) return res.status(400).json({error: 'Enter an address under 300 characters.'});
-  const key = process.env.GOOGLE_MAPS_API_KEY;
+  const key = (process.env.GOOGLE_MAPS_API_KEY || process.env.Google_Maps_API_Key);
   if (!key) return res.status(503).json({error: 'Google Maps address lookup is awaiting setup. You can still plan B-roll without a location.'});
   try {
     const query = new URLSearchParams({address: address.trim(), key});
