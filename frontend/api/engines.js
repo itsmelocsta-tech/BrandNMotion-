@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 const ENGINES = [
-  { id: "kling", label: "Kling", available: Boolean(((process.env.KLING_API_KEY || process.env.Kling_ai_key) || (process.env.KLING_ACCESS_KEY && process.env.KLING_SECRET_KEY)) && process.env.ENABLE_PAID_VIDEO_GENERATION === "true"), description: "Default Director Pro generator" },
+  { id: "kling", label: "Kling", available: Boolean(((process.env.KLING_API_KEY || process.env.Kling_ai_key) || (process.env.KLING_ACCESS_KEY && process.env.KLING_SECRET_KEY)) && process.env.ENABLE_PAID_VIDEO_GENERATION === "true"), description: "Default BrandNMotion B-roll generator" },
   { id: "veo", label: "Google Veo", model: "veo-3.1-fast-generate-preview", available: Boolean(process.env.GEMINI_API_KEY && process.env.ENABLE_PAID_VIDEO_GENERATION === "true"), description: "Google cinematic generation" },
   { id: "runway", label: "Runway", model: "gen4.5", available: Boolean(process.env.RUNWAYML_API_SECRET && process.env.ENABLE_PAID_VIDEO_GENERATION === "true"), description: "Runway text-to-video generation" }
 ];
