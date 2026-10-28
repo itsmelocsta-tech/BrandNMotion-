@@ -10,7 +10,7 @@ export default async function handler(req, res) {
     const query = new URLSearchParams({address: address.trim(), key});
     const upstream = await fetch('https://maps.googleapis.com/maps/api/geocode/json?' + query, {signal: AbortSignal.timeout(10000)});
     const data = await upstream.json();
-    if (!upstream.ok || !['OK','ZERO_RESULTS'].includes(data.status)) return res.status(502).json({error: 'Google Maps could not resolve this address. Check service access and quota.'});
+    if (!upstream.ok || !['OK','ZERO_RESULTS'].includes(data.status)) return res.status(502).json({error: 'Google Maps could not resolve this address. Check service access and quota.', providerStatus: upstream.status, googleStatus: ['REQUEST_DENIED','OVER_DAILY_LIMIT','OVER_QUERY_LIMIT','INVALID_REQUEST','UNKNOWN_ERROR'].includes(data.status) ? data.status : 'UNEXPECTED_RESPONSE'});
     return res.status(200).json({locations: (data.results || []).slice(0,5).map(item => ({address: item.formatted_address, placeId: item.place_id, lat: item.geometry.location.lat, lng: item.geometry.location.lng, approximate: Boolean(item.partial_match) || item.geometry.location_type !== 'ROOFTOP', mapsUrl: 'https://www.google.com/maps/search/?' + new URLSearchParams({api:'1',query:item.formatted_address,query_place_id:item.place_id})}))});
   } catch { return res.status(502).json({error: 'Address lookup timed out or could not connect. Try again.'}); }
 }
