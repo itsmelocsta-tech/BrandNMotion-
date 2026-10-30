@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import axios from "axios";
 import { renderVideo } from "./videoRenderer";
 import { assembleVideo } from "./assembleVideo";
@@ -6,7 +6,14 @@ import { planShots, type ShotPlan } from "./shotPlanner";
 import { produceShots, type Production } from "./productionController";
 
 type SceneLocation = { address: string; placeId: string; lat: number; lng: number; approximate: boolean; mapsUrl: string };
+function restoreProduction(): { plan: ShotPlan; production: Production } | null {
+  try {
+    const data = JSON.parse(localStorage.getItem("bnm-production-v1") || "null");
+    return data?.plan?.shots?.length && data?.production?.fingerprint ? data : null;
+  } catch { return null; }
+}
 export default function App() {
+  const [savedProduction] = useState(restoreProduction);
   const [address, setAddress] = useState("");
   const [locations, setLocations] = useState<SceneLocation[]>([]);
   const [location, setLocation] = useState<SceneLocation | null>(null);
@@ -26,9 +33,10 @@ export default function App() {
   const [prompt, setPrompt] = useState("");
   const sceneBrief = [location ? `B-roll scene location: ${location.address}. Coordinates: ${location.lat}, ${location.lng}.` : "", locationNotes ? `Location appearance supplied by creator: ${locationNotes}.` : "", prompt].filter(Boolean).join("\n");
 
-  const [shotPlan, setShotPlan] = useState<ShotPlan | null>(null);
+  const [shotPlan, setShotPlan] = useState<ShotPlan | null>(savedProduction?.plan || null);
   const [activeShot, setActiveShot] = useState(0);
-  const [production, setProduction] = useState<Production | null>(null);
+  const [production, setProduction] = useState<Production | null>(savedProduction?.production || null);
+  const productionAbort = useRef<AbortController | null>(null);
   const [producing, setProducing] = useState(false);
   const [approvedCost, setApprovedCost] = useState(false);
   const [estimatedRate, setEstimatedRate] = useState(0.12);
@@ -38,7 +46,7 @@ export default function App() {
   const [progress, setProgress] = useState(0);
   const [videoUrl, setVideoUrl] = useState("");
   const [renderError, setRenderError] = useState("");
-  const [cinematicStatus, setCinematicStatus] = useState("");
+  const [cinematicStatus, setCinematicStatus] = useState(savedProduction ? "Saved production restored. Resume checks existing jobs without regenerating completed clips." : "");
   const [cinematicUrl, setCinematicUrl] = useState("");
   const [cinematicBusy, setCinematicBusy] = useState(false);
   const [clips, setClips] = useState<File[]>([]);
@@ -49,9 +57,9 @@ export default function App() {
   const [assemblyProgress, setAssemblyProgress] = useState(0);
   const [crossfade, setCrossfade] = useState(0.5);
   const [soundtrackVolume, setSoundtrackVolume] = useState(1);
-  const [engines, setEngines] = useState<{ id: string; label: string; available: boolean; description: string }[]>([]);
-  const [selectedEngine, setSelectedEngine] = useState("kling");
-  const [aspectRatio, setAspectRatio] = useState("16:9");
+  const [engines, setEngines] = useState<{ id: string; label: string; available: boolean; configured?: boolean; unavailableReason?: string; description: string }[]>([]);
+  const [selectedEngine, setSelectedEngine] = useState(savedProduction?.production.engine || "kling");
+  const [aspectRatio, setAspectRatio] = useState(savedProduction?.production.aspectRatio || "16:9");
   useEffect(() => { axios.get("/api/engines").then(response => setEngines(response.data.engines || [])).catch(() => setCinematicStatus("Unable to load video engines.")); }, []);
 
   const generateVideo = async () => {
@@ -126,12 +134,38 @@ export default function App() {
     } finally { setCinematicBusy(false); }
   };
 
+  useEffect(() => () => productionAbort.current?.abort(), []);
+
+  const collectGeneratedClips = async () => {
+    if (!production?.finished) return;
+    setAssemblyStatus("Loading generated clips into the editor...");
+    try {
+      const files: File[] = [];
+      for (const shot of production.shots) {
+        const response = await fetch(shot.videoUrl!);
+        if (!response.ok) throw Error("Clip download failed.");
+        const blob = await response.blob();
+        if (!blob.type.startsWith("video/")) throw Error("Provider returned an unsupported clip file.");
+        files.push(new File([blob], `shot-${shot.id}.mp4`, { type: blob.type }));
+      }
+      setClips(files); setAssemblyStatus("Generated clips loaded in order. Add music and export below.");
+    } catch { setAssemblyStatus("The provider blocked direct clip loading or its link expired. Download each clip and select those files below; saved jobs have not been regenerated."); }
+  };
+  const downloadProgress = () => {
+    const url = URL.createObjectURL(new Blob([JSON.stringify({ plan: shotPlan, production }, null, 2)], {type:"application/json"}));
+    const a = document.createElement("a"); a.href = url; a.download = "BrandNMotion-production-backup.json"; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
   const runProduction = async () => {
     if (!shotPlan || !approvedCost || producing || cinematicBusy || locating || (location && !locationConfirmed)) return;
     const engine = selectedEngine === "auto" ? engines.find(item => item.available)?.id : selectedEngine;
     if (!engine || !engines.some(item => item.id === engine && item.available)) { setCinematicStatus("No enabled video provider. Production cannot start."); return; }
     setProducing(true); setApprovedCost(false);
-    try { const result = await produceShots(shotPlan, engine, setProduction, fetch, undefined, aspectRatio); setCinematicStatus(result.finished ? "All shots generated. Download the clips and assemble them below." : "Production stopped at a failed shot. No remaining shots were requested."); }
+    productionAbort.current = new AbortController();
+    try { const result = await produceShots(shotPlan, engine, state => {
+      // Stop before requesting more shots if durable browser persistence fails.
+      localStorage.setItem("bnm-production-v1", JSON.stringify({ plan: shotPlan, production: state }));
+      setProduction(state);
+    }, fetch, productionAbort.current.signal, aspectRatio, production); setCinematicStatus(result.finished ? "All shots generated. Load them into the editor below, add music and export." : "Production stopped at a failed shot. No remaining shots were requested."); }
     catch (error) { setCinematicStatus(error instanceof Error ? error.message : "Production failed."); }
     finally { setProducing(false); }
   };
@@ -182,7 +216,7 @@ export default function App() {
         <section id="direction" className="mt-5 border border-zinc-700 rounded-xl p-4" aria-label="B-roll shot board">
           <h2 className="text-xl font-semibold">B-roll shot board</h2>
           <p className="text-zinc-400 text-sm mt-2">Turn one idea into a sequence with consistent characters, settings and camera direction. Planning does not generate paid footage.</p>
-          <button className="w-full mt-3 bg-indigo-500 text-white py-3 rounded-lg font-bold disabled:opacity-50" disabled={(!prompt.trim() && !location) || (!!location && !locationConfirmed) || producing || cinematicBusy} onClick={() => { try { setShotPlan(planShots(sceneBrief.slice(0,3000))); setActiveShot(0); setApprovedCost(false); } catch (e) { setCinematicStatus(e instanceof Error ? e.message : "Planning failed"); } }}>Plan my B-roll · Free</button>
+          <button className="w-full mt-3 bg-indigo-500 text-white py-3 rounded-lg font-bold disabled:opacity-50" disabled={(!prompt.trim() && !location) || (!!location && !locationConfirmed) || producing || cinematicBusy} onClick={() => { try { setShotPlan(planShots(sceneBrief.slice(0,3000), 8)); setProduction(null); localStorage.removeItem("bnm-production-v1"); setActiveShot(0); setApprovedCost(false); } catch (e) { setCinematicStatus(e instanceof Error ? e.message : "Planning failed"); } }}>Plan my B-roll · Free</button>
           {shotPlan && <div className="mt-4"><p className="text-sm">Continuity: {shotPlan.continuity}</p><p className="text-sm mt-2">Planned runtime: {shotPlan.totalSeconds} seconds</p><label className="block mt-3" htmlFor="shot-select">Select shot to generate</label><select id="shot-select" className="w-full bg-zinc-800 p-2 rounded-lg mt-1" value={activeShot} onChange={e => { setActiveShot(Number(e.target.value)); setApprovedCost(false); }}>{shotPlan.shots.map((shot,i) => <option value={i} key={shot.id}>{shot.title}: {shot.camera}</option>)}</select><label className="block mt-3" htmlFor="shot-prompt">Shot direction</label><textarea id="shot-prompt" maxLength={1500} disabled={producing || cinematicBusy} className="w-full h-48 bg-zinc-800 p-3 rounded-lg mt-2" value={shotPlan.shots[activeShot].prompt} onChange={e => { setShotPlan({ ...shotPlan, shots: shotPlan.shots.map((shot, i) => i === activeShot ? {...shot, prompt: e.target.value} : shot) }); setApprovedCost(false); }} /></div>}
         </section>
         <button
@@ -208,13 +242,17 @@ export default function App() {
             {!engines.some(e => e.id === "kling") && <option value="kling">Kling · Checking connection</option>}
             {engines.map(engine => <option key={engine.id} value={engine.id}>{engine.label} {engine.available ? "· Ready" : "· Not configured"}</option>)}
           </select>
+          <p role="status" className="text-sm mt-2">{engines.find(e => e.id === selectedEngine)?.unavailableReason}</p>
           <label className="block mt-3 text-sm" htmlFor="aspect">Aspect ratio</label>
           <select id="aspect" value={aspectRatio} onChange={event => { setAspectRatio(event.target.value); setApprovedCost(false); }} className="w-full bg-zinc-800 p-3 rounded-lg mt-1"><option value="16:9">Landscape 16:9</option><option value="9:16">Vertical 9:16</option></select>
           <label htmlFor="cost-rate" className="block mt-3 text-sm">Estimated provider rate (USD per second; verify with provider)</label>
           <select id="cost-rate" value={estimatedRate} onChange={e => { setEstimatedRate(Number(e.target.value)); setApprovedCost(false); }} className="w-full bg-zinc-800 p-3 rounded-lg mt-1"><option value={0.05}>Budget estimate: $0.05/sec</option><option value={0.12}>Premium estimate: $0.12/sec</option><option value={0.4}>High-end estimate: $0.40/sec</option></select>
           <p className="mt-3 text-sm">Estimated cost for one 5-second generation: <strong>${(5 * estimatedRate).toFixed(2)}</strong>. Estimated cost for all {shotPlan?.shots.length || 1} shots: <strong>${(5 * estimatedRate * (shotPlan?.shots.length || 1)).toFixed(2)}</strong>. Estimates only, not provider quotes; retries cost extra. Single-shot generation requests one clip; Generate all requests the complete shot board.</p>
           <label className="flex items-start gap-2 mt-3 text-sm"><input type="checkbox" checked={approvedCost} onChange={e => setApprovedCost(e.target.checked)} /> I approve provider charges for the selected shot, or all planned shots if I select Generate all. The estimate is not a guaranteed maximum.</label>
-          {shotPlan && <button className="w-full mt-3 bg-amber-500 text-black py-3 rounded-lg font-bold disabled:opacity-50" disabled={locating || (!!location && !locationConfirmed) || !approvedCost || producing || cinematicBusy || !engines.some(e => e.id === selectedEngine && e.available)} onClick={runProduction}>{producing ? "Producing shots..." : "Generate all planned shots (paid)"}</button>}
+          {shotPlan && <button className="w-full mt-3 bg-amber-500 text-black py-3 rounded-lg font-bold disabled:opacity-50" disabled={locating || (!!location && !locationConfirmed) || !approvedCost || producing || cinematicBusy || !engines.some(e => e.id === selectedEngine && e.available)} onClick={runProduction}>{producing ? "Producing shots..." : production ? "Resume saved production" : "Generate all planned shots (paid)"}</button>}
+          {producing && <button className="mt-3 underline" onClick={() => productionAbort.current?.abort()}>Pause production (submitted provider jobs may continue)</button>}
+          {production && <button className="block mt-3 underline" onClick={downloadProgress}>Download progress backup</button>}
+          {production?.finished && <button className="block mt-3 underline" onClick={collectGeneratedClips}>Load generated clips into editor</button>}
           {production && <ol className="mt-3 text-sm list-decimal ml-5">{production.shots.map(shot => <li key={shot.id}>Shot {shot.id}: {shot.status} {shot.videoUrl && <a className="underline text-cyan-300" href={shot.videoUrl}>Download clip</a>} {shot.error && <span role="alert">{shot.error}</span>}</li>)}</ol>}
           <button onClick={makeCinematic} disabled={locating || producing || cinematicBusy || (!prompt.trim() && !location) || (!!location && !locationConfirmed) || !approvedCost || !engines.some(e => e.id === selectedEngine && e.available)} className="w-full mt-3 bg-purple-500 text-white py-4 rounded-xl font-bold disabled:opacity-50">{cinematicBusy ? "Generating AI footage..." : "Generate B-roll clip"}</button>
           {cinematicStatus && <p role="status" className="mt-3 text-sm">{cinematicStatus}</p>}
