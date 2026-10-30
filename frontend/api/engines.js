@@ -7,7 +7,7 @@ const ENGINES = [
 const allowed = /^([a-zA-Z0-9_-]{1,60})$/;
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
-  if (req.method === "GET" && !req.query?.id) return res.status(200).json({ engines: ENGINES.map(({ id, label, available, description }) => ({ id, label, available, description })), paidGenerationEnabled: process.env.ENABLE_PAID_VIDEO_GENERATION === "true" });
+  if (req.method === "GET" && !req.query?.id) return res.status(200).json({ engines: ENGINES.map(({ id, label, available, description }) => { const configured = id === "kling" ? Boolean(process.env.KLING_API_KEY || process.env.Kling_ai_key || (process.env.KLING_ACCESS_KEY && process.env.KLING_SECRET_KEY)) : id === "veo" ? Boolean(process.env.GEMINI_API_KEY) : Boolean(process.env.RUNWAYML_API_SECRET); return { id, label, available, configured, description, unavailableReason: available ? null : configured ? "Generation is paused. No credits will be used." : "Provider connection is missing." }; }), paidGenerationEnabled: process.env.ENABLE_PAID_VIDEO_GENERATION === "true" });
   if (req.method !== "POST" && req.method !== "GET") return res.status(405).json({ error: "Method not allowed." });
   const engine = req.method === "POST" ? req.body?.engine : req.query?.engine;
   if (!["kling", "runway", "veo"].includes(engine)) return res.status(400).json({ error: "Choose a supported video engine." });

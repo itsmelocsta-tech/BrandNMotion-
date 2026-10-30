@@ -1,0 +1,24 @@
+name: Live integration regression
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  production-flow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm install --prefix frontend --no-audit --no-fund
+      - run: npm run build --prefix frontend
+      - run: node --test frontend/*.test.mjs
+      - run: cd frontend && npx playwright install --with-deps chromium
+      - name: Browser integration without paid providers
+        run: |
+          npm run dev --prefix frontend -- --host 127.0.0.1 > /tmp/bnm-vite.log 2>&1 &
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:5173/ >/dev/null && break; sleep 1; done
+          node tests/live-integration-browser.cjs
