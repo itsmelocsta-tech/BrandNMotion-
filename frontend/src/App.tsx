@@ -6,7 +6,14 @@ import { planShots, type ShotPlan } from "./shotPlanner";
 import { produceShots, type Production } from "./productionController";
 
 type SceneLocation = { address: string; placeId: string; lat: number; lng: number; approximate: boolean; mapsUrl: string };
+function restoreProduction(): { plan: ShotPlan; production: Production } | null {
+  try {
+    const data = JSON.parse(localStorage.getItem("bnm-production-v1") || "null");
+    return data?.plan?.shots?.length && data?.production?.fingerprint ? data : null;
+  } catch { return null; }
+}
 export default function App() {
+  const [savedProduction] = useState(restoreProduction);
   const [address, setAddress] = useState("");
   const [locations, setLocations] = useState<SceneLocation[]>([]);
   const [location, setLocation] = useState<SceneLocation | null>(null);
@@ -26,9 +33,9 @@ export default function App() {
   const [prompt, setPrompt] = useState("");
   const sceneBrief = [location ? `B-roll scene location: ${location.address}. Coordinates: ${location.lat}, ${location.lng}.` : "", locationNotes ? `Location appearance supplied by creator: ${locationNotes}.` : "", prompt].filter(Boolean).join("\n");
 
-  const [shotPlan, setShotPlan] = useState<ShotPlan | null>(null);
+  const [shotPlan, setShotPlan] = useState<ShotPlan | null>(savedProduction?.plan || null);
   const [activeShot, setActiveShot] = useState(0);
-  const [production, setProduction] = useState<Production | null>(null);
+  const [production, setProduction] = useState<Production | null>(savedProduction?.production || null);
   const productionAbort = useRef<AbortController | null>(null);
   const [producing, setProducing] = useState(false);
   const [approvedCost, setApprovedCost] = useState(false);
@@ -39,7 +46,7 @@ export default function App() {
   const [progress, setProgress] = useState(0);
   const [videoUrl, setVideoUrl] = useState("");
   const [renderError, setRenderError] = useState("");
-  const [cinematicStatus, setCinematicStatus] = useState("");
+  const [cinematicStatus, setCinematicStatus] = useState(savedProduction ? "Saved production restored. Resume checks existing jobs without regenerating completed clips." : "");
   const [cinematicUrl, setCinematicUrl] = useState("");
   const [cinematicBusy, setCinematicBusy] = useState(false);
   const [clips, setClips] = useState<File[]>([]);
@@ -51,8 +58,8 @@ export default function App() {
   const [crossfade, setCrossfade] = useState(0.5);
   const [soundtrackVolume, setSoundtrackVolume] = useState(1);
   const [engines, setEngines] = useState<{ id: string; label: string; available: boolean; configured?: boolean; unavailableReason?: string; description: string }[]>([]);
-  const [selectedEngine, setSelectedEngine] = useState("kling");
-  const [aspectRatio, setAspectRatio] = useState("16:9");
+  const [selectedEngine, setSelectedEngine] = useState(savedProduction?.production.engine || "kling");
+  const [aspectRatio, setAspectRatio] = useState(savedProduction?.production.aspectRatio || "16:9");
   useEffect(() => { axios.get("/api/engines").then(response => setEngines(response.data.engines || [])).catch(() => setCinematicStatus("Unable to load video engines.")); }, []);
 
   const generateVideo = async () => {
@@ -127,20 +134,7 @@ export default function App() {
     } finally { setCinematicBusy(false); }
   };
 
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem("bnm-production-v1");
-      if (saved) {
-        const data = JSON.parse(saved);
-        if (data.plan?.shots?.length && data.production?.fingerprint) {
-          setShotPlan(data.plan); setProduction(data.production);
-          setSelectedEngine(data.production.engine); setAspectRatio(data.production.aspectRatio);
-          setCinematicStatus("Saved production restored. Resume checks existing jobs without regenerating completed clips.");
-        }
-      }
-    } catch { setCinematicStatus("Saved progress could not be restored. Keep your exported backup."); }
-    return () => productionAbort.current?.abort();
-  }, []);
+  useEffect(() => () => productionAbort.current?.abort(), []);
 
   const collectGeneratedClips = async () => {
     if (!production?.finished) return;
