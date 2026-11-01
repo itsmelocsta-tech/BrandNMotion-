@@ -28,10 +28,12 @@ export default async function handler(req, res) {
         const payload = encode({alg: "HS256", typ: "JWT"}) + "." + encode({iss: key, nbf: now - 5, exp: now + 1800});
         token = payload + "." + createHmac("sha256", process.env.KLING_SECRET_KEY).update(payload).digest("base64url");
       }
-      const base = "https://api-singapore.klingai.com/v1/videos/text2video";
+      const image = req.method === "POST" ? req.body?.image : undefined;
+      if (image !== undefined && (typeof image !== "string" || !/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(image) || image.length > 2800000)) return res.status(400).json({error:"Upload a JPG, PNG, or WebP reference under 2 MB."});
+      const base = "https://api-singapore.klingai.com/v1/videos/" + (image || req.query?.mode === "image" ? "image2video" : "text2video");
       const upstream = await fetch(req.method === "POST" ? base : base + "/" + encodeURIComponent(id), {
         method: req.method, headers: {Authorization: "Bearer " + token, "Content-Type": "application/json"},
-        ...(req.method === "POST" ? {body: JSON.stringify({model_name: "kling-v2-6", prompt: prompt.trim(), mode: "pro", duration: "5", aspect_ratio: req.body?.aspectRatio === "9:16" ? "9:16" : "16:9", sound: "off"})} : {}),
+        ...(req.method === "POST" ? {body: JSON.stringify({model_name: "kling-v2-6", prompt: prompt.trim(), mode: "pro", duration: "5", ...(image ? {image} : {aspect_ratio: req.body?.aspectRatio === "9:16" ? "9:16" : "16:9"}), sound: "off"})} : {}),
         signal: AbortSignal.timeout(25000)
       });
       const data = await upstream.json().catch(() => ({}));
