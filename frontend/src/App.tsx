@@ -31,6 +31,19 @@ export default function App() {
     finally { setLocating(false); }
   };
   const [prompt, setPrompt] = useState("");
+  const [referenceImage, setReferenceImage] = useState<string>("");
+  const [referenceName, setReferenceName] = useState("");
+  const [dialogue, setDialogue] = useState("");
+  const [referenceError, setReferenceError] = useState("");
+  const loadReference = async (file?: File) => {
+    setReferenceError(""); setReferenceImage(""); setReferenceName(""); setApprovedCost(false);
+    if (!file) return;
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 2_000_000) { setReferenceError("Choose a JPG, PNG, or WebP image under 2 MB."); return; }
+    const reader = new FileReader();
+    reader.onload = () => { if (typeof reader.result === "string") { setReferenceImage(reader.result); setReferenceName(file.name); } };
+    reader.onerror = () => setReferenceError("Unable to read the selected photo.");
+    reader.readAsDataURL(file);
+  };
   const sceneBrief = [location ? `B-roll scene location: ${location.address}. Coordinates: ${location.lat}, ${location.lng}.` : "", locationNotes ? `Location appearance supplied by creator: ${locationNotes}.` : "", prompt].filter(Boolean).join("\n");
 
   const [shotPlan, setShotPlan] = useState<ShotPlan | null>(savedProduction?.plan || null);
@@ -112,13 +125,13 @@ export default function App() {
     try {
       const engine = selectedEngine === "auto" ? (engines.find(item => item.available)?.id || "") : selectedEngine;
       if (!engine || !engines.some(item => item.id === engine && item.available)) { setCinematicStatus("No AI video provider is currently enabled. Connect a provider and approve generation costs before rendering."); return; }
-      const scenePrompt = shotPlan?.shots[activeShot]?.prompt || sceneBrief;
-      const started = await axios.post("/api/engines", { engine, prompt: scenePrompt.slice(0,1500), aspectRatio });
+      const scenePrompt = [shotPlan?.shots[activeShot]?.prompt || sceneBrief, dialogue ? "Spoken dialogue: " + dialogue + ". Preserve identity and natural mouth motion." : ""].filter(Boolean).join("\\n");
+      const started = await axios.post("/api/engines", { engine, prompt: scenePrompt.slice(0,1500), aspectRatio, ...(engine === "kling" && referenceImage ? {image: referenceImage} : {}) });
       const id = started.data.id;
       if (!id) throw new Error("Video provider did not return a job identifier.");
       for (let i = 0; i < 90; i++) {
         await new Promise(resolve => setTimeout(resolve, 8000));
-        const status = await axios.get("/api/engines", { params: { engine, id } });
+        const status = await axios.get("/api/engines", { params: { engine, id, ...(engine === "kling" && referenceImage ? {mode:"image"} : {}) } });
         if (["failed", "cancelled"].includes(status.data.status)) throw new Error(status.data.error || "Generation failed.");
         if (status.data.status === "completed") {
           setCinematicUrl(status.data.downloadUrl || status.data.videoUrl);
@@ -158,6 +171,7 @@ export default function App() {
   const runProduction = async () => {
     if (!shotPlan || !approvedCost || producing || cinematicBusy || locating || (location && !locationConfirmed)) return;
     const engine = selectedEngine === "auto" ? engines.find(item => item.available)?.id : selectedEngine;
+    if (referenceImage || dialogue.trim()) { setCinematicStatus("Multi-shot image and dialogue continuity is not yet enabled. Use Generate B-roll clip for one reference-image shot."); return; }
     if (!engine || !engines.some(item => item.id === engine && item.available)) { setCinematicStatus("No enabled video provider. Production cannot start."); return; }
     setProducing(true); setApprovedCost(false);
     productionAbort.current = new AbortController();
@@ -198,6 +212,16 @@ export default function App() {
           className="w-full h-40 bg-zinc-800 text-white p-4 rounded-2xl outline-none border border-zinc-700"
         />
 
+        <section className="mt-5 border border-zinc-700 rounded-xl p-4" aria-label="Character reference and dialogue">
+          <h2 className="text-xl font-semibold">Reference photo and talking character</h2>
+          <p className="text-zinc-400 text-sm mt-2">Upload a photo for Kling image-to-video. Spoken dialogue guides the scene but does not guarantee synchronized speech; native lip-sync is a separate capability.</p>
+          <label className="block mt-3" htmlFor="reference-photo">Reference image (JPG, PNG, WebP; under 2 MB)</label>
+          <input id="reference-photo" type="file" accept="image/jpeg,image/png,image/webp" className="mt-2" onChange={e => void loadReference(e.target.files?.[0])} />
+          {referenceError && <p role="alert" className="text-red-300">{referenceError}</p>}
+          {referenceImage && <div className="mt-3"><img src={referenceImage} alt="Selected character reference" className="max-h-64 rounded-lg" /><p className="text-sm">{referenceName} ready for Kling image-to-video</p></div>}
+          <label className="block mt-3" htmlFor="spoken-dialogue">Character dialogue (optional)</label>
+          <textarea id="spoken-dialogue" value={dialogue} maxLength={500} onChange={e => {setDialogue(e.target.value);setApprovedCost(false);}} placeholder="Type what the character should say..." className="w-full bg-zinc-800 p-3 rounded-lg mt-1" />
+        </section>
         <section className="mt-5 border border-zinc-700 rounded-xl p-4" aria-label="Scene location">
           <h2 className="text-xl font-semibold">Set your scene with Google Maps</h2>
           <p className="text-sm text-zinc-400 mt-2">Find an address, confirm the place, and describe the details you want in your B-roll. Generated footage is an AI interpretation, not a recording or guaranteed replica of the address.</p>
@@ -240,7 +264,7 @@ export default function App() {
           <label className="block mt-3 text-sm" htmlFor="engine">Video engine</label>
           <select id="engine" value={selectedEngine} onChange={event => { setSelectedEngine(event.target.value); setApprovedCost(false); }} className="w-full bg-zinc-800 p-3 rounded-lg mt-1">
             {!engines.some(e => e.id === "kling") && <option value="kling">Kling · Checking connection</option>}
-            {engines.map(engine => <option key={engine.id} value={engine.id}>{engine.label} {engine.available ? "· Ready" : "· Not configured"}</option>)}
+            {engines.map(engine => <option key={engine.id} value={engine.id}>{engine.label} {engine.available ? "· Ready" : engine.configured ? "· Paused (billing disabled)" : "· Not configured"}</option>)}
           </select>
           <p role="status" className="text-sm mt-2">{engines.find(e => e.id === selectedEngine)?.unavailableReason}</p>
           <label className="block mt-3 text-sm" htmlFor="aspect">Aspect ratio</label>
