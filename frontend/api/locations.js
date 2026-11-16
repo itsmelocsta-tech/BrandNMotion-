@@ -1,4 +1,6 @@
+import { requireOwner } from '../server/access.js';
 export default async function handler(req, res) {
+  if (!requireOwner(req, res)) return;
   res.setHeader('Cache-Control', 'no-store');
   if (req.method === 'GET') return res.status(200).json({configured: Boolean((process.env.GOOGLE_MAPS_API_KEY || process.env.Google_Maps_API_Key))});
   if (req.method !== 'POST') return res.status(405).json({error: 'Method not allowed.'});

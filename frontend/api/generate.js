@@ -1,4 +1,6 @@
+import { requireOwner } from '../server/access.js';
 export default async function handler(req, res) {
+  if (!requireOwner(req, res)) return;
   if (req.method === "GET") return res.status(200).json({ service: "BrandNMotion AI planner", configured: Boolean(process.env.GEMINI_API_KEY) });
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");

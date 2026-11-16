@@ -13,6 +13,22 @@ function restoreProduction(): { plan: ShotPlan; production: Production } | null 
   } catch { return null; }
 }
 export default function App() {
+  const [ownerToken, setOwnerToken] = useState("");
+  const ownerApi = axios.create({ headers: ownerToken ? { Authorization: "Bearer " + ownerToken } : {} });
+  const [ownerUnlocked, setOwnerUnlocked] = useState(false);
+  const [ownerStatus, setOwnerStatus] = useState("");
+  const unlockOwner = async () => {
+    try {
+      const response = await ownerApi.get("/api/engines", { headers: { Authorization: "Bearer " + ownerToken } });
+      setEngines(response.data.engines || []); setOwnerUnlocked(true); setOwnerStatus("Owner access unlocked for this tab. Video spending remains $0.");
+    } catch { setOwnerStatus("Owner access could not be verified. Check the owner token and server configuration."); }
+  };
+  const ownerFetch: typeof fetch = (input, init) => {
+    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url, window.location.href);
+    const headers = new Headers(init?.headers);
+    if (url.origin === window.location.origin && url.pathname.startsWith("/api/")) headers.set("Authorization", "Bearer " + ownerToken);
+    return fetch(input, { ...init, headers });
+  };
   const [savedProduction] = useState(restoreProduction);
   const [address, setAddress] = useState("");
   const [locations, setLocations] = useState<SceneLocation[]>([]);
@@ -24,7 +40,7 @@ export default function App() {
   const lookupAddress = async () => {
     setLocating(true); setLocation(null); setLocationConfirmed(false); setLocations([]); setShotPlan(null); setApprovedCost(false);
     try {
-      const response = await axios.post("/api/locations", {address});
+      const response = await ownerApi.post("/api/locations", {address});
       setLocations(response.data.locations);
       setLocationStatus(response.data.locations.length ? "Choose and confirm the scene location below." : "No matching address found. Add a city, state or postal code.");
     } catch (error) { setLocationStatus(axios.isAxiosError(error) ? error.response?.data?.error || "Address lookup failed." : "Address lookup failed."); }
@@ -60,13 +76,13 @@ export default function App() {
   const [engines, setEngines] = useState<{ id: string; label: string; available: boolean; configured?: boolean; unavailableReason?: string; description: string }[]>([]);
   const [selectedEngine, setSelectedEngine] = useState(savedProduction?.production.engine || "kling");
   const [aspectRatio, setAspectRatio] = useState(savedProduction?.production.aspectRatio || "16:9");
-  useEffect(() => { axios.get("/api/engines").then(response => setEngines(response.data.engines || [])).catch(() => setCinematicStatus("Unable to load video engines.")); }, []);
+
 
   const generateVideo = async () => {
     try {
       setLoading(true);
 
-      const response = await axios.post(
+      const response = await ownerApi.post(
         "/api/generate",
         {
           prompt: sceneBrief.slice(0,3000),
@@ -113,12 +129,12 @@ export default function App() {
       const engine = selectedEngine === "auto" ? (engines.find(item => item.available)?.id || "") : selectedEngine;
       if (!engine || !engines.some(item => item.id === engine && item.available)) { setCinematicStatus("No AI video provider is currently enabled. Connect a provider and approve generation costs before rendering."); return; }
       const scenePrompt = shotPlan?.shots[activeShot]?.prompt || sceneBrief;
-      const started = await axios.post("/api/engines", { engine, prompt: scenePrompt.slice(0,1500), aspectRatio });
+      const started = await ownerApi.post("/api/engines", { engine, prompt: scenePrompt.slice(0,1500), aspectRatio });
       const id = started.data.id;
       if (!id) throw new Error("Video provider did not return a job identifier.");
       for (let i = 0; i < 90; i++) {
         await new Promise(resolve => setTimeout(resolve, 8000));
-        const status = await axios.get("/api/engines", { params: { engine, id } });
+        const status = await ownerApi.get("/api/engines", { params: { engine, id } });
         if (["failed", "cancelled"].includes(status.data.status)) throw new Error(status.data.error || "Generation failed.");
         if (status.data.status === "completed") {
           setCinematicUrl(status.data.downloadUrl || status.data.videoUrl);
@@ -142,7 +158,7 @@ export default function App() {
     try {
       const files: File[] = [];
       for (const shot of production.shots) {
-        const response = await fetch(shot.videoUrl!);
+        const response = await ownerFetch(shot.videoUrl!);
         if (!response.ok) throw Error("Clip download failed.");
         const blob = await response.blob();
         if (!blob.type.startsWith("video/")) throw Error("Provider returned an unsupported clip file.");
@@ -165,7 +181,7 @@ export default function App() {
       // Stop before requesting more shots if durable browser persistence fails.
       localStorage.setItem("bnm-production-v1", JSON.stringify({ plan: shotPlan, production: state }));
       setProduction(state);
-    }, fetch, productionAbort.current.signal, aspectRatio, production); setCinematicStatus(result.finished ? "All shots generated. Load them into the editor below, add music and export." : "Production stopped at a failed shot. No remaining shots were requested."); }
+    }, ownerFetch, productionAbort.current.signal, aspectRatio, production); setCinematicStatus(result.finished ? "All shots generated. Load them into the editor below, add music and export." : "Production stopped at a failed shot. No remaining shots were requested."); }
     catch (error) { setCinematicStatus(error instanceof Error ? error.message : "Production failed."); }
     finally { setProducing(false); }
   };
@@ -183,6 +199,12 @@ export default function App() {
   return (
     <div className="min-h-screen bg-black text-white flex items-center justify-center p-6">
       <div className="w-full max-w-5xl bg-zinc-900 rounded-3xl p-8 shadow-2xl border border-zinc-800">
+        <section className="mb-6" aria-label="Owner access">
+          <label htmlFor="owner-token">Owner access token</label>
+          <input id="owner-token" type="password" autoComplete="off" value={ownerToken} onChange={event => { setOwnerToken(event.target.value); setOwnerUnlocked(false); }} className="block w-full bg-zinc-800 p-3 rounded" />
+          <button type="button" onClick={unlockOwner} disabled={!ownerToken || ownerUnlocked}>Unlock owner access</button>
+          <p role="status">{ownerStatus || "Connected services require owner access. Local editing remains available."}</p>
+        </section>
         <h1 className="text-5xl font-bold mb-6 text-center">
           BrandNMotion
         </h1>

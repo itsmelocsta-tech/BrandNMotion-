@@ -1,4 +1,6 @@
+import { requireOwner } from '../server/access.js';
 export default async function handler(req, res) {
+  if (!requireOwner(req, res)) return;
   if (req.method !== "GET") return res.status(405).end();
   const key = process.env.GEMINI_API_KEY;
   if (!key || process.env.ENABLE_PAID_VIDEO_GENERATION !== "true") return res.status(503).json({ error: "Video provider not enabled." });

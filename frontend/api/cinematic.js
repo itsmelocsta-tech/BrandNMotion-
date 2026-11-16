@@ -1,6 +1,9 @@
+import { requireOwner, allowVideoSubmission } from '../server/access.js';
 const base = "https://generativelanguage.googleapis.com/v1beta/";
 const model = "veo-3.1-fast-generate-preview";
 export default async function handler(req, res) {
+  if (!requireOwner(req, res)) return;
+  if (req.method === "POST" && !allowVideoSubmission(res)) return;
   res.setHeader("Cache-Control", "no-store");
   if (req.method !== "POST" && req.method !== "GET") return res.status(405).json({ error: "Method not allowed." });
   if (!process.env.GEMINI_API_KEY) return res.status(503).json({ error: "Gemini credentials are not configured." });
