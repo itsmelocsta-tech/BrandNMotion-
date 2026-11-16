@@ -1,3 +1,4 @@
+import { requireOwner } from "../frontend/server/access.js";
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
@@ -15,6 +16,7 @@ app.get("/", (req, res) => {
 });
 
 app.post("/generate", async (req, res) => {
+  if (!requireOwner(req, res)) return;
   try {
     const { prompt } = req.body;
 
